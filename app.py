@@ -55,7 +55,8 @@ def init_db():
             interval TEXT NOT NULL, decision TEXT NOT NULL, entry DOUBLE PRECISION, stop DOUBLE PRECISION,
             target DOUBLE PRECISION, risk_usd DOUBLE PRECISION, planned_net_rr DOUBLE PRECISION,
             news_bias TEXT, news_score DOUBLE PRECISION, news_summary TEXT, source_links TEXT,
-            strategy_version TEXT NOT NULL DEFAULT 'baseline-v1', candles_json TEXT)""",
+            strategy_version TEXT NOT NULL DEFAULT 'baseline-v1', candles_json TEXT,
+            higher_timeframe TEXT, higher_trend TEXT)""",
         """CREATE TABLE IF NOT EXISTS paper_trades (
             id TEXT PRIMARY KEY, signal_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             symbol TEXT NOT NULL, direction TEXT NOT NULL, entry DOUBLE PRECISION NOT NULL,
@@ -73,6 +74,9 @@ def init_db():
     with engine.begin() as conn:
         for stmt in ddl:
             conn.execute(text(stmt))
+        # Safe schema migration for databases created by an earlier app version.
+        conn.execute(text("ALTER TABLE signals ADD COLUMN IF NOT EXISTS higher_timeframe TEXT"))
+        conn.execute(text("ALTER TABLE signals ADD COLUMN IF NOT EXISTS higher_trend TEXT"))
     return True
 
 
@@ -144,21 +148,22 @@ def score_news(items, symbol):
     return bias, total, relevant
 
 
-def persist_signal(symbol, interval, plan, news, candles):
+def persist_signal(symbol, interval, plan, news, candles, higher_timeframe=None, higher_trend=None):
     if engine is None:
         return None
     signal_id = str(uuid.uuid4())
     bias, score, relevant = news
     links = [{"source": x["source"], "title": x["title"], "url": x["url"]} for x, _ in relevant[:12]]
     db_execute("""INSERT INTO signals(id,symbol,interval,decision,entry,stop,target,risk_usd,planned_net_rr,
-        news_bias,news_score,news_summary,source_links,strategy_version,candles_json)
-        VALUES(:id,:symbol,:interval,:decision,:entry,:stop,:target,:risk,:rr,:bias,:score,:summary,:links,:version,:candles)""", {
+        news_bias,news_score,news_summary,source_links,strategy_version,candles_json,higher_timeframe,higher_trend)
+        VALUES(:id,:symbol,:interval,:decision,:entry,:stop,:target,:risk,:rr,:bias,:score,:summary,:links,:version,:candles,:higher_timeframe,:higher_trend)""", {
         "id": signal_id, "symbol": symbol, "interval": interval, "decision": plan.get("decision", "WAIT"),
         "entry": plan.get("entry"), "stop": plan.get("stop"), "target": plan.get("target"),
         "risk": plan.get("estimated_risk_usd", plan.get("risk_usd", 0)), "rr": plan.get("planned_net_rr", 0),
         "bias": bias, "score": score, "summary": json.dumps([x[0]["title"] for x in relevant[:12]]),
         "links": json.dumps(links), "version": "baseline-v1",
-        "candles": candles.tail(100).to_json(orient="records", date_format="iso")})
+        "candles": candles.tail(100).to_json(orient="records", date_format="iso"),
+        "higher_timeframe": higher_timeframe, "higher_trend": higher_trend})
     return signal_id
 
 
@@ -184,6 +189,19 @@ SYMBOLS = [
     "EUR/JPY", "GBP/JPY", "XAU/USD",
 ]
 INTERVALS = ["1min", "5min", "15min", "30min", "1h", "2h", "4h", "1day"]
+
+# Every selectable chart timeframe is paired with a broader confirmation timeframe.
+# For the daily chart, weekly candles provide the next higher timeframe.
+HIGHER_TIMEFRAME_MAP = {
+    "1min": "5min",
+    "5min": "15min",
+    "15min": "1h",
+    "30min": "1h",
+    "1h": "4h",
+    "2h": "4h",
+    "4h": "1day",
+    "1day": "1week",
+}
 
 
 # ----------------------------
@@ -234,6 +252,26 @@ def fetch_candles(symbol: str, interval: str, outputsize: int, api_key: str) -> 
         )
 
     return df
+
+
+def higher_timeframe_for(interval: str) -> str:
+    """Return the configured higher timeframe used to confirm the selected chart."""
+    return HIGHER_TIMEFRAME_MAP.get(interval, "1week")
+
+
+def classify_trend(df: pd.DataFrame) -> str:
+    """Classify broader trend with the same simple EMA20/EMA50 price filter."""
+    if df is None or len(df) < 50:
+        return "NEUTRAL"
+    last = df.iloc[-1]
+    close = float(last["close"])
+    ema20 = float(last["ema20"])
+    ema50 = float(last["ema50"])
+    if ema20 > ema50 and close > ema20:
+        return "BULLISH"
+    if ema20 < ema50 and close < ema20:
+        return "BEARISH"
+    return "NEUTRAL"
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -461,7 +499,7 @@ def create_trade_plan(df: pd.DataFrame, symbol: str, balance: float, risk_pct: f
 # User interface
 # ----------------------------
 st.title("📈 Forex AI Analyst")
-st.caption("Rule-based technical analysis • Supply & demand estimates • Exness Standard simulation profile • Paper trading only")
+st.caption("Rule-based technical analysis • Higher-timeframe trend confirmation • Supply & demand estimates • Paper trading only")
 
 status, status_note = market_status_utc()
 if status == "Market generally closed":
@@ -557,26 +595,52 @@ if st.button("Analyze market", type="primary", use_container_width=True):
             )
             st.stop()
 
-        with st.spinner(f"Fetching {candle_count} candles for {symbol} ({interval})..."):
-            candles = fetch_candles(symbol, interval, int(candle_count), api_key)
-            candles = add_indicators(candles)
+        higher_interval = higher_timeframe_for(interval)
+        with st.spinner(f"Fetching {interval} entry candles and {higher_interval} confirmation candles for {symbol}..."):
+            candles = add_indicators(fetch_candles(symbol, interval, int(candle_count), api_key))
+            higher_candles = add_indicators(fetch_candles(symbol, higher_interval, int(candle_count), api_key))
+            higher_trend = classify_trend(higher_candles)
             plan = create_trade_plan(
                 candles, symbol, float(balance), float(risk_pct),
                 float(pip_value_per_lot), MIN_RR,
                 spread_pips=float(spread_pips),
                 slippage_pips=float(slippage_pips),
             )
-            # Enforce the minimum after estimated spread/slippage. Any uncertainty means no trade.
+            # Higher timeframe is a hard directional gate: disagreement or uncertainty means no entry.
+            if plan.get("decision") in ("BUY", "SELL"):
+                required_trend = "BULLISH" if plan["decision"] == "BUY" else "BEARISH"
+                if higher_trend != required_trend:
+                    rejected_direction = plan["decision"]
+                    plan["decision"] = "NO TRADE"
+                    plan["reasons"].append(
+                        f"Higher-timeframe confirmation failed: {higher_interval} trend is {higher_trend}. "
+                        f"A {rejected_direction} requires {required_trend} confirmation."
+                    )
+                    plan["entry"] = plan["stop"] = plan["target"] = None
+                    plan["lots"] = plan["units"] = None
+            else:
+                plan["reasons"].append(
+                    f"Higher-timeframe confirmation checked on {higher_interval}: {higher_trend}. "
+                    "A local setup is still required before an entry can be considered."
+                )
+            # Enforce the minimum net reward-to-risk after estimated spread/slippage.
             if plan.get("decision") in ("BUY", "SELL") and float(plan.get("planned_net_rr", 0) or 0) < MIN_RR:
                 plan["decision"] = "NO TRADE"
                 plan["reasons"].append("Rejected: estimated net reward-to-risk after spread/slippage is below 1:2.")
                 plan["entry"] = plan["stop"] = plan["target"] = None
-            # News is displayed as contextual evidence, not allowed to override hard risk rules.
-            signal_id = persist_signal(symbol, interval, plan, news_result, candles) if engine is not None else None
+            # News is contextual evidence; it cannot override trend confirmation or risk rules.
+            signal_id = persist_signal(symbol, interval, plan, news_result, candles, higher_interval, higher_trend) if engine is not None else None
             if signal_id:
                 st.session_state["last_signal_id"] = signal_id
 
         latest = candles.iloc[-1]
+        st.subheader("Higher-timeframe confirmation")
+        h1, h2, h3 = st.columns(3)
+        h1.metric("Selected timeframe", interval)
+        h2.metric("Confirmation timeframe", higher_interval)
+        h3.metric("Higher-timeframe trend", higher_trend)
+        if higher_trend == "NEUTRAL":
+            st.warning(f"The {higher_interval} trend is neutral/unclear. Any BUY/SELL candidate is blocked until a clear trend appears.")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Latest close", format_price(float(latest["close"]), symbol))
         c2.metric("EMA 20", format_price(float(latest["ema20"]), symbol))
@@ -715,7 +779,7 @@ if st.button("Analyze market", type="primary", use_container_width=True):
         st.error(f"Unexpected app error: {exc}")
 
 else:
-    st.info("Choose an instrument and timeframe, then click **Analyze market** to load candles and generate a rule-based paper-trading analysis.")
+    st.info("Choose an instrument and timeframe, then click **Analyze market**. The app will also fetch a higher timeframe automatically and require directional agreement before accepting a BUY/SELL candidate.")
 
 st.divider()
 st.caption("Forex AI Analyst • Educational paper-trading prototype • No real-money order execution")
