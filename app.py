@@ -26,7 +26,7 @@ st.set_page_config(
 )
 
 APP_NAME = "FOREX / FIELDNOTES"
-APP_VERSION = "evidence-v2"
+APP_VERSION = "knowledge-v3"
 DEFAULT_BALANCE = 100.0
 DEFAULT_RISK_PCT = 2.0
 MIN_RR = 2.0
@@ -63,6 +63,43 @@ NEWS_FEEDS = {
 }
 
 
+# -------------------- Structured knowledge library ----------
+# These are documented hypotheses and analysis rules, not claims of predictive certainty.
+KNOWLEDGE_ITEMS = [
+    {"id":"macro_rates_relative","domain":"Fundamentals & macro","title":"Relative interest-rate expectations","description":"Exchange rates respond to the relative path of expected monetary policy, not only the latest policy rate.","determinants":"Rate differentials; forward guidance; inflation persistence; growth and labour data; market pricing before the event.","required_data":"Central-bank statements, policy rates, reputable yield data, dated economic releases and expectations where available.","rules":"Compare both currencies in the pair. Distinguish a change in expectations from information already priced in.","failure_conditions":"Do not infer a rate-path change from a headline alone; data may be stale, incomplete or already priced in.","validation_method":"Timestamp event snapshots and evaluate subsequent pair returns against a baseline with transaction costs."},
+    {"id":"inflation_surprise","domain":"Fundamentals & macro","title":"Inflation releases and surprise","description":"Inflation matters through its effect on expected policy and real yields; the direction is context-dependent.","determinants":"Actual versus consensus; core versus headline; revisions; prior central-bank guidance; labour and growth context.","required_data":"Official release, timestamp, actual/consensus/prior values and source provenance.","rules":"Only label a surprise when comparable consensus data are available. Otherwise report the release without claiming a beat or miss.","failure_conditions":"A higher inflation print is not automatically bullish for a currency if growth, credibility or policy expectations dominate.","validation_method":"Test event-window reactions separately by event type and regime; avoid look-ahead bias."},
+    {"id":"employment_growth","domain":"Fundamentals & macro","title":"Employment and growth releases","description":"Jobs, wages, GDP and activity data can shift expectations for growth and monetary policy.","determinants":"Surprise magnitude; revisions; wage/inflation components; unemployment; prevailing policy narrative.","required_data":"Official statistical release and consensus only when a trusted source provides it.","rules":"Explain which component changed and why it could matter; do not reduce complex releases to a single positive/negative keyword.","failure_conditions":"Conflicting components, revisions, or low-quality consensus can make a one-direction interpretation unreliable.","validation_method":"Measure event-window returns and volatility; report sample size and confidence intervals."},
+    {"id":"central_bank_communication","domain":"Fundamentals & macro","title":"Central-bank communication","description":"Statements, minutes, speeches and press conferences may alter the expected policy path.","determinants":"Policy decision versus expectations; wording changes; voting split; guidance; credibility and prior positioning.","required_data":"Official central-bank source, publication time and the relevant previous statement for comparison.","rules":"Separate the decision, forward guidance and uncertainty. Cite source and timestamp in the analysis.","failure_conditions":"A keyword such as hawkish/dovish can miss context, sarcasm, caveats or market expectations.","validation_method":"Compare a transparent event classification with subsequent moves across multiple meetings."},
+    {"id":"trend_structure","domain":"Technical & price action","title":"Trend and swing structure","description":"Sequences of swing highs/lows and price location help describe directional structure.","determinants":"Confirmed swing points; close versus prior structure; timeframe; trend persistence; range boundaries.","required_data":"Sufficient closed candles with consistent timestamps and price fields.","rules":"Distinguish a confirmed break from an intrabar wick. Keep timeframe and lookback explicit.","failure_conditions":"Swing labels are lookback-dependent and can change in real time; ranges create false breaks.","validation_method":"Define the swing algorithm before testing and evaluate out-of-sample with costs."},
+    {"id":"ema_context","domain":"Technical & price action","title":"Moving-average context","description":"Moving averages smooth price and can summarise trend alignment, but lag price.","determinants":"EMA slope and ordering; price relative to averages; timeframe; recent volatility.","required_data":"Closed candles and a fixed EMA calculation method.","rules":"Treat EMA20/EMA50 as contextual evidence, not a standalone entry trigger or certainty score.","failure_conditions":"Whipsaws in ranges; lag after sharp reversals; sensitivity to timeframe and parameter choice.","validation_method":"Compare to simple baselines and test parameters on unseen chronological periods."},
+    {"id":"rsi_momentum","domain":"Technical & price action","title":"RSI momentum and extension","description":"RSI describes recent momentum; extreme readings can persist in strong trends.","determinants":"RSI level and slope; price structure; trend regime; divergence quality; timeframe.","required_data":"Consistent close series and defined RSI period.","rules":"Interpret RSI in context. Do not assume overbought means an immediate sell or oversold means an immediate buy.","failure_conditions":"Strong trends can stay extreme; divergences may occur early or repeatedly.","validation_method":"Test RSI conditions within separately identified trend/range regimes."},
+    {"id":"support_resistance","domain":"Technical & price action","title":"Support, resistance and zones","description":"Prior reaction areas can provide context for invalidation and target feasibility.","determinants":"Number and recency of reactions; zone width; approach momentum; timeframe; nearby opposing zones.","required_data":"OHLC candles and a documented, reproducible zone algorithm.","rules":"Label zones as estimates from price history, not proof of institutional orders. Check target space before approving a setup.","failure_conditions":"Zones are subjective, can be breached, and can be overfit to the chart.","validation_method":"Freeze zone rules and measure outcomes by distance, volatility and regime."},
+    {"id":"breakout_quality","domain":"Technical & price action","title":"Breakout quality and false breaks","description":"A breakout may indicate expansion but can also be a liquidity sweep or failed move.","determinants":"Closed-bar confirmation; range width; volume/tick-volume limitations; retest; volatility; event timing.","required_data":"Closed OHLC candles and clear range boundaries; volume only if source quality is known.","rules":"Describe confirmation and invalidation explicitly. Do not treat a wick alone as confirmed acceptance beyond a level.","failure_conditions":"Low-liquidity hours, spread spikes, scheduled news and range-bound conditions.","validation_method":"Compare breakout definitions with a baseline and include spread/slippage assumptions."},
+    {"id":"multi_timeframe","domain":"Technical & price action","title":"Multi-timeframe context","description":"Higher timeframes can contextualise a lower-timeframe setup without mechanically vetoing it.","determinants":"Trend agreement; nearby higher-timeframe levels; timeframe nesting; data freshness.","required_data":"Closed candles for entry and higher timeframes, with the same timezone discipline.","rules":"Report each timeframe separately and explain disagreement. Do not count correlated timeframes as independent proof.","failure_conditions":"Higher timeframe lag, overlapping data and false confidence from double-counting similar signals.","validation_method":"Compare aligned and non-aligned cases on separate chronological samples."},
+    {"id":"atr_volatility","domain":"Regime & sessions","title":"Volatility and ATR","description":"ATR estimates recent range and helps contextualise stops and unusual conditions.","determinants":"ATR relative to price; ATR percentile; recent expansion/contraction; instrument and timeframe.","required_data":"Closed candles and consistent ATR calculation.","rules":"Use volatility to contextualise stop distance and market conditions, not to predict direction.","failure_conditions":"ATR lags sudden news shocks and does not guarantee future range or stop execution.","validation_method":"Bucket results by prior volatility regime without using future data to classify the bucket."},
+    {"id":"market_regime","domain":"Regime & sessions","title":"Trend, range and transition regimes","description":"Strategies can behave differently in persistent trends, ranges and transitions.","determinants":"Swing progression; directional efficiency; volatility; breakout persistence; mean-reversion behaviour.","required_data":"Historical OHLC series and pre-defined regime classifier.","rules":"Identify regime using only information available at decision time; allow uncertain classifications.","failure_conditions":"Regime changes are gradual and labels can be unstable around transitions.","validation_method":"Report performance by regime and test classifier stability out of sample."},
+    {"id":"session_liquidity","domain":"Regime & sessions","title":"Trading sessions and liquidity conditions","description":"Session timing can influence spreads, activity and volatility, but patterns vary by instrument and date.","determinants":"London/New York overlap; holidays; daylight-saving changes; instrument; current spread and event calendar.","required_data":"UTC timestamps, session calendar and ideally actual spread observations.","rules":"Preserve the existing UTC handling; convert only for display where explicitly needed. Do not assume every session is liquid.","failure_conditions":"Holiday sessions, DST transitions, rollover and broker-specific trading hours.","validation_method":"Measure spread and outcome distributions by session using timestamp-correct historical data."},
+    {"id":"news_relevance","domain":"News & sentiment","title":"Headline relevance and source quality","description":"News context is useful only when the story is relevant to the currencies and reliably sourced.","determinants":"Publisher credibility; publication time; named currency/central bank; event type; duplicate stories.","required_data":"Headline, URL, publisher, publication timestamp and available summary.","rules":"Deduplicate URLs, show source and timestamp, distinguish official releases from secondary reporting.","failure_conditions":"Headline-only classification can miss negation, context, stale articles and duplicate syndication.","validation_method":"Audit sampled classifications against the linked article and track false-relevance rate."},
+    {"id":"news_surprise","domain":"News & sentiment","title":"News surprise versus expectations","description":"Markets often respond to the difference between released information and what was expected.","determinants":"Consensus quality; actual/prior/revised data; policy narrative; pre-release positioning.","required_data":"A reliable consensus source and official release; otherwise mark surprise unavailable.","rules":"Never invent consensus or infer a surprise from a headline sentiment score.","failure_conditions":"Consensus may be unavailable, inconsistent or not representative of market pricing.","validation_method":"Store source snapshots at release time and evaluate without revised/look-ahead data."},
+    {"id":"event_risk","domain":"News & sentiment","title":"Scheduled event and gap risk","description":"Major releases can widen spreads, increase slippage and invalidate ordinary stop assumptions.","determinants":"Event importance; instrument exposure; time to release; current volatility; broker conditions.","required_data":"Reliable dated event calendar and current market data.","rules":"When a trusted calendar is unavailable, disclose that event-risk coverage is incomplete rather than implying the calendar is clear.","failure_conditions":"Unexpected announcements, calendar changes and source delays.","validation_method":"Compare paper outcomes around known events with ordinary periods, including cost stress tests."},
+    {"id":"correlation_exposure","domain":"Cross-market relationships","title":"Currency and position concentration","description":"Several different pairs can express nearly the same underlying currency exposure.","determinants":"Shared base/quote currencies; current correlations; open trade direction; volatility and position size.","required_data":"Open paper trades and aligned historical returns; correlation windows documented.","rules":"Flag overlapping currency exposure; do not treat pair names as independent diversification.","failure_conditions":"Correlations vary over time and historical correlation is not a guarantee.","validation_method":"Stress portfolio drawdown during correlation spikes and common-currency moves."},
+    {"id":"gold_context","domain":"Cross-market relationships","title":"Gold and macro context","description":"Gold can respond to real yields, dollar moves, risk demand and liquidity; relationships are conditional.","determinants":"Real-yield changes; USD; risk events; central-bank demand; positioning and liquidity.","required_data":"Gold prices and reliable macro series if used; avoid assuming unavailable inputs.","rules":"Present these as possible explanatory factors unless the relevant data are actually connected.","failure_conditions":"Gold may rise or fall with the dollar depending on the dominant driver and horizon.","validation_method":"Test conditional relationships by regime and report unstable periods."},
+    {"id":"position_sizing","domain":"Risk & trade mechanics","title":"Position sizing from stop distance","description":"Position size should be derived from the permitted dollar risk and instrument-specific loss per unit.","determinants":"Equity/balance; risk cap; stop distance; pip/point value; contract size; conversion rate.","required_data":"Correct contract specifications, quote conversion and explicit account currency.","rules":"Round size down; reject the trade if the minimum size exceeds the risk cap. Display assumptions and uncertainty.","failure_conditions":"Approximate pip values, changing conversion rates, gaps and execution slippage.","validation_method":"Unit-test calculations across pairs, JPY crosses and XAU/USD against independently checked examples."},
+    {"id":"net_rr_costs","domain":"Risk & trade mechanics","title":"Net reward-to-risk after friction","description":"Spread and slippage assumptions reduce reward and increase effective risk; gross ratios can overstate a setup.","determinants":"Entry/stop/target distances; spread; commissions; slippage; swap if holding overnight.","required_data":"Instrument pip size/value and explicit transaction-cost assumptions.","rules":"Enforce a minimum estimated net R:R of 1:2 and reject invalid trade geometry. Clearly label estimated costs.","failure_conditions":"Costs can exceed assumptions, targets may not fill, and gaps can exceed stops.","validation_method":"Stress test cost assumptions and compare planned versus simulated realised outcomes."},
+    {"id":"portfolio_drawdown","domain":"Risk & trade mechanics","title":"Drawdown and cumulative exposure","description":"A sequence of individually small risks can still produce meaningful cumulative drawdown.","determinants":"Concurrent trades; correlated exposure; loss streaks; equity changes; open risk.","required_data":"Persisted trade ledger with realised P/L and open-risk estimates.","rules":"Calculate realised balance from initial capital plus recorded P/L; never silently reset history. Keep risk cap hard-limited to 2%.","failure_conditions":"Incomplete records, inconsistent P/L sign conventions or missing open-risk estimates.","validation_method":"Reconcile ledger totals and simulate drawdown sequences and correlated losses."},
+    {"id":"expectancy","domain":"Quant research & learning","title":"Expectancy and sample size","description":"Win rate alone is insufficient; average win, average loss, costs and sample uncertainty matter.","determinants":"Win/loss sizes; transaction costs; number of trades; regime mix; outliers.","required_data":"Complete trade outcomes with consistent realised P/L and cost treatment.","rules":"Report expectancy alongside sample count and drawdown; avoid strong conclusions from tiny samples.","failure_conditions":"Selection bias, survivorship bias, incomplete records and changing strategy rules.","validation_method":"Use confidence intervals, bootstrap or robust repeated samples where appropriate."},
+    {"id":"backtest_integrity","domain":"Quant research & learning","title":"Chronological validation and leakage prevention","description":"Strategy assessment must avoid using future information in feature generation, tuning or validation.","determinants":"Time ordering; feature timestamps; train/validation separation; revisions; execution assumptions.","required_data":"Versioned historical dataset, code/parameter versions and reproducible fills/cost model.","rules":"Keep a final untouched test period; tune only on earlier data; record all assumptions and sample counts.","failure_conditions":"Look-ahead bias, repeated peeking at test data, optimistic fills and overfitting.","validation_method":"Walk-forward or chronological holdout testing and comparison against the unchanged baseline."},
+    {"id":"strategy_change_gate","domain":"Quant research & learning","title":"Strategy-change approval gate","description":"A candidate change should earn approval through reproducible evidence, not a single winning streak.","determinants":"Out-of-sample expectancy; drawdown; trade count; cost sensitivity; stability across regimes.","required_data":"Baseline and candidate metrics measured on the same unseen sample and same costs.","rules":"Persist candidate hypotheses; keep status PENDING until reviewed; do not auto-deploy or raise risk limits.","failure_conditions":"Small samples, metric cherry-picking, unstable gains and incompatible risk profiles.","validation_method":"Require documented method, sufficient sample, out-of-sample results and human approval."},
+    {"id":"confidence_calibration","domain":"Quant research & learning","title":"Confidence is not win probability","description":"A heuristic score expresses weighted evidence, not a calibrated probability of success.","determinants":"Score construction; correlated factors; historical calibration; regime and sample stability.","required_data":"Transparent factor contributions and, for probability claims, a sufficiently large labelled dataset.","rules":"Display the evidence score and its interpretation; never translate it into a win probability without calibration.","failure_conditions":"Double-counting correlated indicators and treating score magnitude as statistical certainty.","validation_method":"If probability estimates are introduced, test calibration, Brier score and out-of-sample reliability."},
+    {"id":"data_quality","domain":"Data quality & operations","title":"Freshness, completeness and candle integrity","description":"Analysis quality depends on correct, sufficiently complete, consistently timestamped inputs.","determinants":"Missing bars; duplicate timestamps; forming candles; provider outages; symbol mapping.","required_data":"Provider response metadata, OHLC validation and explicit candle timestamps.","rules":"Exclude the newest possibly forming candle as currently implemented; fail safely on malformed or insufficient data.","failure_conditions":"Stale API responses, rate limits, symbol differences and gaps around weekends/holidays.","validation_method":"Add deterministic tests for missing bars, duplicate timestamps, invalid OHLC and stale inputs."},
+    {"id":"execution_slippage","domain":"Risk & trade mechanics","title":"Execution and slippage assumptions","description":"Paper fills are simplified and cannot perfectly reproduce live broker execution.","determinants":"Spread, liquidity, volatility, order type, market gaps and broker-specific contract rules.","required_data":"Explicit simulation assumptions; broker specs only when independently confirmed.","rules":"Label fills and pip values as estimates. This app must never submit live orders.","failure_conditions":"No paper model can guarantee live fills, stop execution or exact costs.","validation_method":"Run sensitivity scenarios and compare assumptions with available demo-account observations."},
+    {"id":"risk_of_ruin","domain":"Risk & trade mechanics","title":"Loss streak and risk-of-ruin awareness","description":"Even strategies with positive observed expectancy can experience long losing streaks.","determinants":"Risk per trade; expectancy uncertainty; win/loss distribution; correlated positions; drawdown limit.","required_data":"Reliable historical outcomes and risk sizing records.","rules":"Keep risk limits fixed and make drawdown visible; do not increase risk after losses to recover them.","failure_conditions":"Historical distribution may not persist and small samples understate tail risk.","validation_method":"Monte Carlo resampling with caveats, stress scenarios and out-of-sample validation."},
+    {"id":"human_review","domain":"Governance & discipline","title":"Human approval and audit trail","description":"The analyst should explain its reasoning and let the user decide whether to open a paper trade.","determinants":"Evidence quality; risk checks; data freshness; user confirmation; logged signal version.","required_data":"Persisted signal, risk calculations, notes and approval event.","rules":"No automatic execution; require explicit approval for each paper trade and preserve the record of what was reviewed.","failure_conditions":"UI confirmation must not be mistaken for broker validation or guaranteed performance.","validation_method":"Audit that each opened paper trade links to a signal and passes hard risk checks."},
+    {"id":"conflicting_evidence","domain":"Reasoning & uncertainty","title":"Conflicting evidence and abstention","description":"When evidence conflicts or data is missing, an honest WAIT can be better than forcing a directional call.","determinants":"Opposing indicators; timeframe disagreement; stale news; uncertain structure; cost feasibility.","required_data":"Factor-level evidence, conflicts, higher-timeframe context and data-quality status.","rules":"Show supporting and opposing evidence separately. Missing information lowers certainty and must not be filled with invented facts.","failure_conditions":"Rigid thresholds and correlated signals can create false confidence.","validation_method":"Track WAIT frequency and compare outcomes only with well-defined counterfactuals."},
+    {"id":"documentation_provenance","domain":"Governance & discipline","title":"Source provenance and reproducibility","description":"Every external claim should be traceable to a source, timestamp and version of the analysis.","determinants":"Source URL; publication/fetch times; provider; strategy version; data and code changes.","required_data":"Stored source links, UTC timestamps, strategy version and immutable trade/signal IDs.","rules":"Preserve citations and analysis snapshots where feasible; distinguish source publication time from fetch time.","failure_conditions":"Feeds can update or disappear; a URL alone may not preserve the original article content.","validation_method":"Re-run analyses from stored inputs when possible and audit source links and version records."},
+]
+
+
 # -------------------- Visual system -------------------------
 
 st.markdown("""
@@ -70,27 +107,27 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600&display=swap');
 
 :root {
-  --paper: #F4F0E8;
-  --surface: #FBF9F4;
-  --ink: #20231F;
-  --muted: #77786F;
-  --line: #DAD4C8;
-  --copper: #B96842;
-  --green: #2E7155;
-  --red: #A8483E;
+  --paper: #0A0E14;
+  --surface: #111823;
+  --ink: #E8EDF4;
+  --muted: #98A4B5;
+  --line: #273244;
+  --copper: #D7AE62;
+  --green: #48C99A;
+  --red: #FF7777;
 }
 html, body, [class*="css"] {
   font-family: 'DM Sans', sans-serif;
 }
 .stApp {
-  background: var(--paper);
+  background: radial-gradient(ellipse at 18% 0%, #172130 0%, #0A0E14 52%);
   color: var(--ink);
 }
 [data-testid="stHeader"] {
-  background: rgba(244,240,232,.94);
+  background: rgba(10,14,20,.94);
 }
 [data-testid="stSidebar"] {
-  background: #EAE4D9;
+  background: #0D131D;
   border-right: 1px solid var(--line);
 }
 [data-testid="stSidebar"] * {
@@ -121,9 +158,9 @@ small, [data-testid="stCaptionContainer"] {
 [data-testid="stMetric"] {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 10px;
   padding: 16px 18px;
-  box-shadow: none;
+  box-shadow: 0 10px 30px rgba(0,0,0,.12);
 }
 [data-testid="stMetricLabel"] {
   color: var(--muted) !important;
@@ -137,25 +174,25 @@ small, [data-testid="stCaptionContainer"] {
 }
 [data-testid="stVerticalBlockBorderWrapper"] {
   border-color: var(--line) !important;
-  border-radius: 5px;
+  border-radius: 10px;
 }
 [data-testid="stExpander"] {
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 10px;
   background: var(--surface);
 }
 .stButton > button, .stDownloadButton > button {
-  border-radius: 3px;
-  border: 1px solid var(--ink);
-  background: var(--ink);
-  color: #FAF8F2;
+  border-radius: 8px;
+  border: 1px solid #D7AE62;
+  background: linear-gradient(135deg, #D7AE62, #A97B37);
+  color: #10141B;
   font-weight: 600;
   min-height: 2.65rem;
 }
 .stButton > button:hover, .stDownloadButton > button:hover {
-  border-color: var(--copper);
-  background: var(--copper);
-  color: white;
+  border-color: #F1D18A;
+  background: #F1D18A;
+  color: #10141B;
 }
 [data-testid="stDataFrame"] {
   border: 1px solid var(--line);
@@ -163,7 +200,7 @@ small, [data-testid="stCaptionContainer"] {
 [data-baseweb="select"] > div,
 [data-baseweb="input"] > div,
 [data-baseweb="textarea"] > div {
-  background: var(--surface);
+  background: #111823;
   border-color: var(--line);
 }
 hr {
@@ -177,11 +214,19 @@ hr {
   color: var(--copper);
 }
 .editorial-hero {
-  background: #EAE4D9;
+  background: linear-gradient(135deg, #151F2D, #0E141D);
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   padding: 3rem 2rem;
+  border-radius: 16px;
 }
+[data-testid="stTabs"] button { color: #AAB5C4; }
+[data-testid="stTabs"] button[aria-selected="true"] { color: #E7C57D; border-bottom-color: #D7AE62; }
+[data-testid="stAlert"] { border-radius: 10px; }
+[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+.knowledge-card { background: #111823; border: 1px solid #273244; border-radius: 12px; padding: 1rem; margin: .4rem 0; }
+.knowledge-domain { color: #D7AE62; font-family: 'DM Mono', monospace; font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; }
+.hero-stat { background: #111823; border: 1px solid #273244; border-radius: 12px; padding: 1rem; }
 .editorial-note {
   border-left: 2px solid var(--copper);
   padding: .3rem 0 .3rem 1rem;
@@ -311,6 +356,20 @@ def init_db():
             summary TEXT,
             fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""",
+        """CREATE TABLE IF NOT EXISTS knowledge_records (
+            id TEXT PRIMARY KEY,
+            domain TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            determinants TEXT NOT NULL,
+            required_data TEXT NOT NULL,
+            rules TEXT NOT NULL,
+            failure_conditions TEXT NOT NULL,
+            validation_method TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'DOCUMENTED',
+            user_notes TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
     ]
 
     with engine.begin() as conn:
@@ -360,6 +419,17 @@ def init_db():
             SET planned_net_rr = COALESCE(planned_net_rr, net_rr, 0),
                 net_rr = COALESCE(net_rr, planned_net_rr, 0)
         """))
+        # Seed the knowledge catalogue without overwriting user notes/statuses.
+        for item in KNOWLEDGE_ITEMS:
+            conn.execute(text("""
+                INSERT INTO knowledge_records(
+                    id,domain,title,description,determinants,required_data,rules,
+                    failure_conditions,validation_method,status,user_notes
+                ) VALUES (
+                    :id,:domain,:title,:description,:determinants,:required_data,:rules,
+                    :failure_conditions,:validation_method,'DOCUMENTED',''
+                ) ON CONFLICT(id) DO NOTHING
+            """), item)
     return True
 
 
@@ -896,7 +966,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.markdown(f"# {APP_NAME}")
-st.caption("A considered approach to market structure, evidence and risk.")
+st.caption("Market intelligence · Evidence-weighted analysis · Knowledge library · Paper trading only")
 st.divider()
 
 if not st.session_state["workspace_open"]:
@@ -1007,8 +1077,8 @@ else:
         "across app restarts."
     )
 
-tab_analysis, tab_news, tab_journal, tab_learning = st.tabs([
-    "Market analysis", "News & context", "Paper journal", "Strategy review"
+tab_analysis, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
+    "Market terminal", "News & context", "Paper journal", "Strategy review", "Knowledge base"
 ])
 
 
@@ -1137,6 +1207,34 @@ with tab_analysis:
         m2.metric("Latest close", format_price(latest["close"], symbol))
         m3.metric("RSI (14)", f"{latest['rsi14']:.1f}")
         m4.metric("Swing structure", plan["structure"])
+
+        st.markdown("### Analyst reasoning & knowledge links")
+        st.caption("The knowledge library explains how each factor is interpreted. Scores are heuristic evidence weights, not calibrated win probabilities.")
+        reasoning_cols = st.columns(2)
+        with reasoning_cols[0]:
+            st.markdown("**Supporting evidence**")
+            if plan["evidence"]:
+                for item in plan["evidence"]:
+                    st.markdown(f"- **{item['Factor']}** ({item['Score']:+.2f}) — {item['Interpretation']}")
+            else:
+                st.write("No strong supporting factors identified.")
+        with reasoning_cols[1]:
+            st.markdown("**Conflicts and cautions**")
+            if plan["conflicts"]:
+                for item in plan["conflicts"]:
+                    st.markdown(f"- **{item['Factor']}** ({item['Score']:+.2f}) — {item['Interpretation']}")
+            else:
+                st.write("No explicit technical conflict recorded; this is not proof of low risk.")
+        with st.expander("How the knowledge engine interprets this market", expanded=False):
+            st.markdown("""
+            - **Trend:** EMA alignment is contextual evidence and may lag.
+            - **Momentum:** RSI is interpreted by regime; extreme values are not automatic reversal signals.
+            - **Structure and location:** swing structure and estimated zones are hypotheses derived from historical prices, not proof of institutional activity.
+            - **Volatility:** ATR helps contextualise distance and conditions; it does not predict direction.
+            - **Higher timeframes:** disagreement is disclosed rather than used as an automatic veto.
+            - **News:** headline keyword scores are weak context and cannot independently authorise a trade.
+            - **Risk:** the hard risk budget and estimated net 1:2 minimum remain separate from directional analysis.
+            """)
 
         st.markdown("### What supports the read")
         if plan["evidence"]:
@@ -1486,6 +1584,122 @@ with tab_learning:
         if experiments:
             st.markdown("### Experiment history")
             st.dataframe(pd.DataFrame(experiments), use_container_width=True, hide_index=True)
+
+# -------------------- Knowledge base tab --------------------
+
+with tab_knowledge:
+    st.markdown('<div class="editorial-kicker">THE LIBRARY / KNOWLEDGE MUST BE TRACEABLE</div>', unsafe_allow_html=True)
+    st.subheader("Forex knowledge & determinants")
+    st.write("A structured, inspectable catalogue of the factors the analyst should consider, the data they require, their failure modes and how their usefulness should be validated. Documented knowledge is not automatically implemented or proven profitable.")
+
+    knowledge_df = pd.DataFrame(KNOWLEDGE_ITEMS)
+    domain_options = ["All domains"] + sorted(knowledge_df["domain"].unique().tolist())
+    kcol1, kcol2, kcol3 = st.columns([1.25, 1.7, 1])
+    with kcol1:
+        selected_domain = st.selectbox("Knowledge domain", domain_options, key="knowledge_domain_filter")
+    with kcol2:
+        knowledge_query = st.text_input("Search knowledge", placeholder="e.g. central bank, RSI, slippage…", key="knowledge_search")
+    with kcol3:
+        status_options = ["All statuses", "DOCUMENTED", "IMPLEMENTED", "TESTED", "VALIDATED", "NEEDS REVIEW"]
+        selected_status = st.selectbox("Maturity", status_options, key="knowledge_status_filter")
+
+    if engine is not None:
+        try:
+            saved_records = db_execute("SELECT id,status,user_notes,updated_at FROM knowledge_records", fetch=True)
+            saved_by_id = {r["id"]: r for r in saved_records}
+        except Exception as exc:
+            saved_by_id = {}
+            st.warning(f"Persisted knowledge status could not be loaded ({type(exc).__name__}). Showing the built-in catalogue.")
+    else:
+        saved_by_id = {}
+        st.info("Knowledge catalogue is available locally. Configure PostgreSQL to persist maturity statuses and notes across sessions.")
+
+    enriched = []
+    for item in KNOWLEDGE_ITEMS:
+        record = dict(item)
+        saved_record = saved_by_id.get(item["id"], {})
+        record["status"] = saved_record.get("status", "DOCUMENTED")
+        record["user_notes"] = saved_record.get("user_notes", "")
+        enriched.append(record)
+    filtered = []
+    for item in enriched:
+        if selected_domain != "All domains" and item["domain"] != selected_domain:
+            continue
+        if selected_status != "All statuses" and item["status"] != selected_status:
+            continue
+        haystack = " ".join(str(item.get(k, "")) for k in ("title","domain","description","determinants","required_data","rules" )).lower()
+        if knowledge_query.strip().lower() not in haystack:
+            continue
+        filtered.append(item)
+
+    total = len(enriched)
+    validated = sum(item["status"] == "VALIDATED" for item in enriched)
+    implemented = sum(item["status"] in ("IMPLEMENTED", "TESTED", "VALIDATED") for item in enriched)
+    sm1, sm2, sm3, sm4 = st.columns(4)
+    sm1.metric("Knowledge items", total)
+    sm2.metric("Domains", knowledge_df["domain"].nunique())
+    sm3.metric("Implemented or beyond", implemented)
+    sm4.metric("Validated", validated)
+    st.caption("Maturity is a project governance label, not a claim that a strategy is profitable. The built-in items start as DOCUMENTED.")
+
+    st.download_button(
+        "Export knowledge catalogue (JSON)",
+        data=json.dumps(enriched, indent=2, ensure_ascii=False),
+        file_name="forex_knowledge_catalogue.json",
+        mime="application/json",
+        use_container_width=False,
+    )
+    st.markdown(f"### {len(filtered)} knowledge items")
+    for item in filtered:
+        with st.expander(f"{item['title']}  ·  {item['domain']}  ·  {item['status']}", expanded=False):
+            st.markdown(f"**What it means**\n\n{item['description']}")
+            st.markdown(f"**Determinants**\n\n{item['determinants']}")
+            st.markdown(f"**Required data**\n\n{item['required_data']}")
+            st.markdown(f"**Interpretation rules**\n\n{item['rules']}")
+            st.markdown(f"**Failure conditions / limitations**\n\n{item['failure_conditions']}")
+            st.markdown(f"**Validation method**\n\n{item['validation_method']}")
+            with st.form(f"knowledge_form_{item['id']}"):
+                new_status = st.selectbox(
+                    "Implementation maturity",
+                    ["DOCUMENTED", "IMPLEMENTED", "TESTED", "VALIDATED", "NEEDS REVIEW"],
+                    index=["DOCUMENTED", "IMPLEMENTED", "TESTED", "VALIDATED", "NEEDS REVIEW"].index(item["status"]),
+                    key=f"knowledge_status_{item['id']}",
+                    help="Use VALIDATED only after reproducible testing supports the specific implementation."
+                )
+                new_notes = st.text_area("Project notes / implementation evidence", value=item["user_notes"], key=f"knowledge_notes_{item['id']}")
+                submitted = st.form_submit_button("Save knowledge record")
+                if submitted:
+                    if engine is None:
+                        st.error("PostgreSQL is required to save maturity status and notes persistently.")
+                    else:
+                        try:
+                            db_execute("""
+                                INSERT INTO knowledge_records(
+                                    id,domain,title,description,determinants,required_data,rules,
+                                    failure_conditions,validation_method,status,user_notes,updated_at
+                                ) VALUES (
+                                    :id,:domain,:title,:description,:determinants,:required_data,:rules,
+                                    :failure_conditions,:validation_method,:status,:user_notes,NOW()
+                                ) ON CONFLICT(id) DO UPDATE SET
+                                    status=EXCLUDED.status,
+                                    user_notes=EXCLUDED.user_notes,
+                                    updated_at=NOW()
+                            """, {**item, "status": new_status, "user_notes": new_notes})
+                            st.success("Knowledge record saved.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Could not save knowledge record ({type(exc).__name__}).")
+
+    st.markdown("### Knowledge-engine roadmap")
+    st.markdown("""
+    1. **Documented** — concept, determinants, required inputs and limitations are recorded.
+    2. **Implemented** — reproducible code consumes the required data and exposes its contribution.
+    3. **Tested** — deterministic unit/integration tests cover normal, boundary and missing-data cases.
+    4. **Validated** — chronological out-of-sample evaluation supports the stated use, with costs and sample size disclosed.
+    5. **Needs review** — evidence, source quality or implementation has become questionable.
+
+    The app does not automatically promote records through these stages. Human review is required, and the hard paper-risk controls cannot be changed by a knowledge record.
+    """)
 
 st.divider()
 st.caption(
