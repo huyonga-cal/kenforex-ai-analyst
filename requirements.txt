@@ -1,8 +1,7 @@
-
-streamlit>=1.40,<2.0
-pandas>=2.0,<3.0
-plotly>=5.20,<7.0
-requests>=2.31,<3.0
-feedparser>=6.0,<7.0
-SQLAlchemy>=2.0,<3.0
-psycopg[binary]>=3.1,<4.0
+streamlit>=1.35
+pandas>=2.0
+plotly>=5.20
+requests>=2.31
+feedparser>=6.0
+SQLAlchemy>=2.0
+psycopg[binary]>=3.1
