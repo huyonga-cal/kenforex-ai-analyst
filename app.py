@@ -26,7 +26,7 @@ st.set_page_config(
 )
 
 APP_NAME = "FOREX / FIELDNOTES"
-APP_VERSION = "knowledge-v3"
+APP_VERSION = "learning-flow-v4"
 DEFAULT_BALANCE = 100.0
 DEFAULT_RISK_PCT = 2.0
 MIN_RR = 2.0
@@ -84,9 +84,9 @@ KNOWLEDGE_ITEMS = [
     {"id":"event_risk","domain":"News & sentiment","title":"Scheduled event and gap risk","description":"Major releases can widen spreads, increase slippage and invalidate ordinary stop assumptions.","determinants":"Event importance; instrument exposure; time to release; current volatility; broker conditions.","required_data":"Reliable dated event calendar and current market data.","rules":"When a trusted calendar is unavailable, disclose that event-risk coverage is incomplete rather than implying the calendar is clear.","failure_conditions":"Unexpected announcements, calendar changes and source delays.","validation_method":"Compare paper outcomes around known events with ordinary periods, including cost stress tests."},
     {"id":"correlation_exposure","domain":"Cross-market relationships","title":"Currency and position concentration","description":"Several different pairs can express nearly the same underlying currency exposure.","determinants":"Shared base/quote currencies; current correlations; open trade direction; volatility and position size.","required_data":"Open paper trades and aligned historical returns; correlation windows documented.","rules":"Flag overlapping currency exposure; do not treat pair names as independent diversification.","failure_conditions":"Correlations vary over time and historical correlation is not a guarantee.","validation_method":"Stress portfolio drawdown during correlation spikes and common-currency moves."},
     {"id":"gold_context","domain":"Cross-market relationships","title":"Gold and macro context","description":"Gold can respond to real yields, dollar moves, risk demand and liquidity; relationships are conditional.","determinants":"Real-yield changes; USD; risk events; central-bank demand; positioning and liquidity.","required_data":"Gold prices and reliable macro series if used; avoid assuming unavailable inputs.","rules":"Present these as possible explanatory factors unless the relevant data are actually connected.","failure_conditions":"Gold may rise or fall with the dollar depending on the dominant driver and horizon.","validation_method":"Test conditional relationships by regime and report unstable periods."},
-    {"id":"position_sizing","domain":"Risk & trade mechanics","title":"Position sizing from stop distance","description":"Position size should be derived from the permitted dollar risk and instrument-specific loss per unit.","determinants":"Equity/balance; risk cap; stop distance; pip/point value; contract size; conversion rate.","required_data":"Correct contract specifications, quote conversion and explicit account currency.","rules":"Round size down; reject the trade if the minimum size exceeds the risk cap. Display assumptions and uncertainty.","failure_conditions":"Approximate pip values, changing conversion rates, gaps and execution slippage.","validation_method":"Unit-test calculations across pairs, JPY crosses and XAU/USD against independently checked examples."},
-    {"id":"net_rr_costs","domain":"Risk & trade mechanics","title":"Net reward-to-risk after friction","description":"Spread and slippage assumptions reduce reward and increase effective risk; gross ratios can overstate a setup.","determinants":"Entry/stop/target distances; spread; commissions; slippage; swap if holding overnight.","required_data":"Instrument pip size/value and explicit transaction-cost assumptions.","rules":"Enforce a minimum estimated net R:R of 1:2 and reject invalid trade geometry. Clearly label estimated costs.","failure_conditions":"Costs can exceed assumptions, targets may not fill, and gaps can exceed stops.","validation_method":"Stress test cost assumptions and compare planned versus simulated realised outcomes."},
-    {"id":"portfolio_drawdown","domain":"Risk & trade mechanics","title":"Drawdown and cumulative exposure","description":"A sequence of individually small risks can still produce meaningful cumulative drawdown.","determinants":"Concurrent trades; correlated exposure; loss streaks; equity changes; open risk.","required_data":"Persisted trade ledger with realised P/L and open-risk estimates.","rules":"Calculate realised balance from initial capital plus recorded P/L; never silently reset history. Keep risk cap hard-limited to 2%.","failure_conditions":"Incomplete records, inconsistent P/L sign conventions or missing open-risk estimates.","validation_method":"Reconcile ledger totals and simulate drawdown sequences and correlated losses."},
+    {"id":"position_sizing","domain":"Risk & trade mechanics","title":"Position sizing from stop distance","description":"Position size should be derived from the permitted dollar risk and instrument-specific loss per unit.","determinants":"Equity/balance; risk cap; stop distance; pip/point value; contract size; conversion rate.","required_data":"Correct contract specifications, quote conversion and explicit account currency.","rules":"Calculate the suggested size from the account guideline and stop distance. If the minimum lot exceeds the guideline, flag the overrun clearly and leave the paper-order decision to the user.","failure_conditions":"Approximate pip values, changing conversion rates, gaps and execution slippage.","validation_method":"Unit-test calculations across pairs, JPY crosses and XAU/USD against independently checked examples."},
+    {"id":"net_rr_costs","domain":"Risk & trade mechanics","title":"Net reward-to-risk after friction","description":"Spread and slippage assumptions reduce reward and increase effective risk; gross ratios can overstate a setup.","determinants":"Entry/stop/target distances; spread; commissions; slippage; swap if holding overnight.","required_data":"Instrument pip size/value and explicit transaction-cost assumptions.","rules":"Show the estimated net R:R after friction. Flag ratios below the 1:2 guideline and explain how costs affect the setup; invalid price geometry still needs correction. The ratio warning alone does not block a paper order.","failure_conditions":"Costs can exceed assumptions, targets may not fill, and gaps can exceed stops.","validation_method":"Stress test cost assumptions and compare planned versus simulated realised outcomes."},
+    {"id":"portfolio_drawdown","domain":"Risk & trade mechanics","title":"Drawdown and cumulative exposure","description":"A sequence of individually small risks can still produce meaningful cumulative drawdown.","determinants":"Concurrent trades; correlated exposure; loss streaks; equity changes; open risk.","required_data":"Persisted trade ledger with realised P/L and open-risk estimates.","rules":"Calculate realised balance from initial capital plus recorded P/L; never silently reset history. Show 2% as a risk guideline and explain cumulative open exposure and drawdown; do not hide the implications when the user chooses to exceed the guideline in a paper simulation.","failure_conditions":"Incomplete records, inconsistent P/L sign conventions or missing open-risk estimates.","validation_method":"Reconcile ledger totals and simulate drawdown sequences and correlated losses."},
     {"id":"expectancy","domain":"Quant research & learning","title":"Expectancy and sample size","description":"Win rate alone is insufficient; average win, average loss, costs and sample uncertainty matter.","determinants":"Win/loss sizes; transaction costs; number of trades; regime mix; outliers.","required_data":"Complete trade outcomes with consistent realised P/L and cost treatment.","rules":"Report expectancy alongside sample count and drawdown; avoid strong conclusions from tiny samples.","failure_conditions":"Selection bias, survivorship bias, incomplete records and changing strategy rules.","validation_method":"Use confidence intervals, bootstrap or robust repeated samples where appropriate."},
     {"id":"backtest_integrity","domain":"Quant research & learning","title":"Chronological validation and leakage prevention","description":"Strategy assessment must avoid using future information in feature generation, tuning or validation.","determinants":"Time ordering; feature timestamps; train/validation separation; revisions; execution assumptions.","required_data":"Versioned historical dataset, code/parameter versions and reproducible fills/cost model.","rules":"Keep a final untouched test period; tune only on earlier data; record all assumptions and sample counts.","failure_conditions":"Look-ahead bias, repeated peeking at test data, optimistic fills and overfitting.","validation_method":"Walk-forward or chronological holdout testing and comparison against the unchanged baseline."},
     {"id":"strategy_change_gate","domain":"Quant research & learning","title":"Strategy-change approval gate","description":"A candidate change should earn approval through reproducible evidence, not a single winning streak.","determinants":"Out-of-sample expectancy; drawdown; trade count; cost sensitivity; stability across regimes.","required_data":"Baseline and candidate metrics measured on the same unseen sample and same costs.","rules":"Persist candidate hypotheses; keep status PENDING until reviewed; do not auto-deploy or raise risk limits.","failure_conditions":"Small samples, metric cherry-picking, unstable gains and incompatible risk profiles.","validation_method":"Require documented method, sufficient sample, out-of-sample results and human approval."},
@@ -98,6 +98,52 @@ KNOWLEDGE_ITEMS = [
     {"id":"conflicting_evidence","domain":"Reasoning & uncertainty","title":"Conflicting evidence and abstention","description":"When evidence conflicts or data is missing, an honest WAIT can be better than forcing a directional call.","determinants":"Opposing indicators; timeframe disagreement; stale news; uncertain structure; cost feasibility.","required_data":"Factor-level evidence, conflicts, higher-timeframe context and data-quality status.","rules":"Show supporting and opposing evidence separately. Missing information lowers certainty and must not be filled with invented facts.","failure_conditions":"Rigid thresholds and correlated signals can create false confidence.","validation_method":"Track WAIT frequency and compare outcomes only with well-defined counterfactuals."},
     {"id":"documentation_provenance","domain":"Governance & discipline","title":"Source provenance and reproducibility","description":"Every external claim should be traceable to a source, timestamp and version of the analysis.","determinants":"Source URL; publication/fetch times; provider; strategy version; data and code changes.","required_data":"Stored source links, UTC timestamps, strategy version and immutable trade/signal IDs.","rules":"Preserve citations and analysis snapshots where feasible; distinguish source publication time from fetch time.","failure_conditions":"Feeds can update or disappear; a URL alone may not preserve the original article content.","validation_method":"Re-run analyses from stored inputs when possible and audit source links and version records."},
 ]
+
+
+def knowledge_lesson_pack(symbol="", direction="", risk_pct=None, net_rr=None, conflicts=None, news_present=False, trade_outcome=None):
+    """Return teaching cards grounded in the built-in knowledge catalogue; no invented probabilities."""
+    conflicts = conflicts or []
+    wanted = ["position_sizing", "net_rr_costs", "human_review", "confidence_calibration"]
+    if symbol:
+        wanted += ["data_quality", "execution_slippage"]
+    if conflicts:
+        wanted += ["conflicting_evidence", "multi_timeframe"]
+    if news_present:
+        wanted += ["news_relevance", "event_risk", "news_surprise"]
+    if risk_pct is not None and risk_pct > 2.0:
+        wanted += ["portfolio_drawdown", "risk_of_ruin"]
+    if net_rr is not None and net_rr < 2.0:
+        wanted += ["net_rr_costs", "expectancy"]
+    if trade_outcome is not None:
+        wanted += ["expectancy", "backtest_integrity", "strategy_change_gate"]
+    by_id = {item["id"]: item for item in KNOWLEDGE_ITEMS}
+    cards = []
+    seen = set()
+    for item_id in wanted:
+        item = by_id.get(item_id)
+        if item and item_id not in seen:
+            cards.append(item)
+            seen.add(item_id)
+    return cards
+
+
+def render_knowledge_lesson_pack(cards, risk_pct=None, net_rr=None, compact=False):
+    """Display the selected knowledge as a small automatic lesson, not a trade verdict."""
+    if not cards:
+        st.info("Run an analysis or calculate a setup to receive a context-specific lesson from the knowledge base.")
+        return
+    st.markdown("#### Your automatic learning brief" if not compact else "#### Learn from this setup")
+    st.caption("Retrieved from the app's documented knowledge catalogue. It explains concepts and limitations; it does not claim a setup will win.")
+    if risk_pct is not None and risk_pct > 2.0:
+        st.warning(f"Risk lesson: estimated risk is {risk_pct:.2f}% of account equity, above your 2% guideline. This is an alert, not an order block.")
+    if net_rr is not None and net_rr < 2.0:
+        st.warning(f"Reward-to-risk lesson: estimated net R:R is 1:{net_rr:.2f}, below your 1:2 target. Costs reduce the reward and increase effective risk. This is an alert, not an order block.")
+    for item in cards[:5 if compact else 8]:
+        with st.expander(f"{item['title']} · {item['domain']}", expanded=False):
+            st.write(item["description"])
+            st.markdown(f"**What to examine:** {item['determinants']}")
+            st.markdown(f"**How to apply it:** {item['rules']}")
+            st.caption(f"Limitation: {item['failure_conditions']}")
 
 
 # -------------------- Visual system -------------------------
@@ -381,6 +427,16 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'DOCUMENTED',
             user_notes TEXT NOT NULL DEFAULT '',
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
+        """CREATE TABLE IF NOT EXISTS learning_events (
+            id TEXT PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            event_type TEXT NOT NULL,
+            symbol TEXT,
+            direction TEXT,
+            trade_id TEXT,
+            lesson_snapshot TEXT NOT NULL,
+            reflection TEXT NOT NULL DEFAULT ''
         )""",
     ]
 
@@ -1099,8 +1155,8 @@ else:
         "across app restarts."
     )
 
-tab_analysis, tab_setups, tab_place, tab_account, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
-    "Market terminal", "Execution setups", "PLACE ORDER", "Paper account", "News & context", "Paper journal", "Strategy review", "Knowledge base"
+tab_analysis, tab_setups, tab_place, tab_account, tab_news, tab_journal, tab_learning, tab_learning_flow, tab_knowledge = st.tabs([
+    "Market terminal", "Execution setups", "PLACE ORDER", "Paper account", "News & context", "Paper journal", "Strategy review", "Learning flow", "Knowledge base"
 ])
 
 
@@ -1190,6 +1246,7 @@ with tab_analysis:
                         "middle_trend": middle_trend,
                         "macro_trend": macro_trend,
                         "signal_id": signal_id,
+                        "news": news_result,
                         "created_at": datetime.now(timezone.utc).isoformat(),
                     }
 
@@ -1492,7 +1549,9 @@ with tab_setups:
             risk_budget = balance_now * min(float(risk_pct), 2.0) / 100.0
             pip_value = float(plan.get("pip_value_per_lot") or 0.0)
             raw_lots = risk_budget / (effective_risk_pips * pip_value) if effective_risk_pips > 0 and pip_value > 0 else 0.0
-            lots = math.floor((raw_lots + 1e-12) / 0.01) * 0.01
+            # Keep a usable 0.01-lot suggestion even when it exceeds the guideline;
+            # show the resulting risk warning and leave the paper-trade decision to the user.
+            lots = max(0.01, math.floor((raw_lots + 1e-12) / 0.01) * 0.01) if pip_value > 0 else 0.01
             estimated_risk = effective_risk_pips * pip_value * lots
             net_reward_pips = max(0.0, target_pips - friction_pips) if geometry_ok else 0.0
             estimated_reward = net_reward_pips * pip_value * lots
@@ -1506,17 +1565,17 @@ with tab_setups:
             st.markdown("---")
             st.markdown("#### Calculated execution card")
             if not geometry_direction_ok:
-                st.error("RED FLAG · Price geometry is invalid for the selected direction. Correct entry, stop-loss and take-profit before considering this scenario.")
-            elif not risk_ok:
-                st.error("RED FLAG · The risk budget or minimum lot-size check failed. Do not approve this calculated size.")
-            elif not rr_ok:
-                st.error(f"RED FLAG · Estimated net reward-to-risk is 1:{net_rr:.2f}; the required minimum is 1:2 after the entered friction estimate.")
-            elif human_scenario:
-                st.warning("AMBER FLAG · The numbers pass the basic mathematical checks, but this is your manually selected scenario, not a direction qualified by the analyst. Review the evidence and current price before deciding.")
-            elif plan.get("conflicts"):
-                st.warning("AMBER FLAG · Risk maths passes, but the analysis contains counterevidence. Read the conflicting factors before deciding.")
+                st.error("ORDER SETUP NEEDS CORRECTION · For BUY use SL < entry < TP; for SELL use TP < entry < SL. Correct the price geometry before placing the paper order.")
             else:
-                st.success("No hard mathematical red flag detected under the current assumptions. This is not a prediction of success or a guarantee of execution.")
+                st.success("CALCULATION COMPLETE · Your paper-order decision is available below. Review the alerts and make the final decision yourself.")
+                if not risk_ok:
+                    st.warning("RISK ALERT · The estimated loss is above the 2% guideline or the suggested minimum lot creates an overrun. This is educational guidance, not a paper-order block.")
+                if not rr_ok:
+                    st.warning(f"REWARD-TO-RISK ALERT · Estimated net R:R is 1:{net_rr:.2f}; your target guideline is at least 1:2 after estimated costs. You may still choose to record this paper trade.")
+                if human_scenario:
+                    st.info("CONTEXT ALERT · This is a human-selected scenario or the analyst assessed WAIT. Review supporting and opposing evidence before deciding.")
+                if plan.get("conflicts"):
+                    st.info("CONFLICTING EVIDENCE · The analysis contains counterevidence. The learning brief below explains how to weigh it.")
 
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Stop distance", f"{stop_pips:.1f} pips" if geometry_ok else "Invalid")
@@ -1532,22 +1591,24 @@ with tab_setups:
 
             check_rows = [
                 {"Check": "Entry / SL / TP geometry", "Status": "PASS" if geometry_direction_ok else "RED FLAG", "Detail": "Stop and target are on the correct sides of entry." if geometry_direction_ok else "Selected direction requires a valid stop and target on opposite sides of entry."},
-                {"Check": "Maximum risk budget", "Status": "PASS" if risk_ok else "RED FLAG", "Detail": f"Estimated loss ${estimated_risk:.2f} against budget ${risk_budget:.2f}; size rounded down to 0.01 lots."},
-                {"Check": "Minimum net R:R", "Status": "PASS" if rr_ok else "RED FLAG", "Detail": f"Estimated net ratio 1:{net_rr:.2f}; required at least 1:2."},
+                {"Check": "2% risk guideline", "Status": "WITHIN GUIDELINE" if risk_ok else "ALERT — YOUR DECISION", "Detail": f"Estimated loss ${estimated_risk:.2f} against guideline ${risk_budget:.2f}. This warns but does not block paper placement."},
+                {"Check": "1:2 net R:R guideline", "Status": "WITHIN GUIDELINE" if rr_ok else "ALERT — YOUR DECISION", "Detail": f"Estimated net ratio 1:{net_rr:.2f}; target guideline at least 1:2. This warns but does not block paper placement."},
                 {"Check": "Analyst alignment", "Status": "PASS" if not human_scenario else "AMBER", "Detail": "Matches the analyst's current direction." if not human_scenario else "Human-selected direction or analyst WAIT; this is not an analyst-qualified direction."},
                 {"Check": "Market / broker conditions", "Status": "UNVERIFIED", "Detail": "Spread, pip value, contract size, margin, event risk and future fills are not broker-verified."},
             ]
             st.dataframe(pd.DataFrame(check_rows), use_container_width=True, hide_index=True)
-            hard_pass = geometry_direction_ok and risk_ok and rr_ok and lots >= 0.01
+            hard_pass = geometry_direction_ok and lots >= 0.01 and pip_value > 0
+            lesson_cards = knowledge_lesson_pack(symbol_now, direction, (estimated_risk / balance_now * 100.0) if balance_now > 0 else 0.0, net_rr, plan.get("conflicts", []), bool(current.get("news")))
+            render_knowledge_lesson_pack(lesson_cards, (estimated_risk / balance_now * 100.0) if balance_now > 0 else 0.0, net_rr, compact=True)
             if engine is None:
-                st.warning("Paper-trade recording is disabled until DATABASE_URL / persistent database storage is configured.")
-            elif not hard_pass:
-                st.warning("Paper approval is disabled while any hard mathematical check fails. You can edit the scenario and recalculate.")
+                st.warning("Paper-trade recording is unavailable until DATABASE_URL / persistent database storage is configured.")
+            elif not geometry_direction_ok:
+                st.warning("Correct entry/stop/target geometry before recording this paper order. Risk and reward-to-risk guideline failures alone do not block it.")
             else:
                 st.markdown("#### Your decision")
                 st.write("Review the chart, news, conflicting evidence and the assumptions above. The app is not choosing for you.")
                 approved = st.checkbox("I reviewed this scenario and approve recording it as a paper trade (no live order).", key=f"human_approve_{analysis_id}")
-                if st.button("Confirm & record paper trade", type="primary", use_container_width=True, disabled=not approved, key=f"record_exec_{analysis_id}"):
+                if st.button("PLACE PAPER ORDER", type="primary", use_container_width=True, disabled=not (approved and hard_pass), key=f"record_exec_{analysis_id}"):
                     try:
                         db_execute("""
                             INSERT INTO paper_trades(
@@ -1572,7 +1633,14 @@ with tab_setups:
                             "friction": friction_pips,
                             "approval_key": f"scenario:{analysis_id}",
                         })
-                        st.success("Paper trade recorded. No live order was sent.")
+                        try:
+                            db_execute("INSERT INTO learning_events(id,event_type,symbol,direction,trade_id,lesson_snapshot) VALUES (:id,'ORDER_PLACED',:symbol,:direction,:trade_id,:snapshot)", {
+                                "id": str(uuid.uuid4()), "symbol": symbol_now, "direction": direction,
+                                "trade_id": None, "snapshot": json.dumps([{"id": x["id"], "title": x["title"], "domain": x["domain"]} for x in lesson_cards]),
+                            })
+                        except Exception:
+                            pass
+                        st.success("PAPER TRADE RECORDED. Risk/R:R alerts did not block your decision. No live order was sent.")
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Could not record paper trade ({type(exc).__name__}). Check database connectivity and logs.")
@@ -1621,8 +1689,8 @@ with tab_place:
             risk_budget = max(0.0, current_balance * 0.02)
             m1, m2, m3 = st.columns(3)
             m1.metric("Account balance", f"${current_balance:.2f}")
-            m2.metric("Maximum risk / order", f"${risk_budget:.2f}", "2% hard limit")
-            m3.metric("Minimum net R:R", "1:2.00", "hard requirement")
+            m2.metric("2% risk guideline", f"${risk_budget:.2f}", "alert only")
+            m3.metric("Net R:R target", "1:2.00", "guideline · alert only")
 
             candidates = db_execute("""
                 SELECT id,created_at,symbol,interval,decision,entry,stop,target,planned_net_rr
@@ -1673,25 +1741,26 @@ with tab_place:
                 checks = [
                     {"Rule": "Supported instrument", "Status": "PASS" if supported_order else "BLOCK", "Detail": "USD-quoted FX pair only; background P&L assumptions supported." if supported_order else "Current worker deliberately skips this symbol to avoid mispriced P&L."},
                     {"Rule": "Entry / SL / TP geometry", "Status": "PASS" if geometry_order else "BLOCK", "Detail": "Levels match the selected direction." if geometry_order else "For BUY: SL < entry < TP. For SELL: TP < entry < SL."},
-                    {"Rule": "Maximum 2% risk", "Status": "PASS" if risk_pass else "BLOCK", "Detail": f"Estimated stop loss plus costs ${estimated_loss:.2f}; maximum allowed ${risk_budget:.2f}."},
-                    {"Rule": "Minimum net reward-to-risk", "Status": "PASS" if rr_pass else "BLOCK", "Detail": f"Estimated after-friction ratio 1:{net_rr_order:.2f}; minimum is 1:2.00."},
+                    {"Rule": "2% risk guideline", "Status": "WITHIN GUIDELINE" if risk_pass else "ALERT — YOUR DECISION", "Detail": f"Estimated stop loss plus costs ${estimated_loss:.2f}; guideline ${risk_budget:.2f}. Alert only; does not block a paper order."},
+                    {"Rule": "1:2 net reward-to-risk guideline", "Status": "WITHIN GUIDELINE" if rr_pass else "ALERT — YOUR DECISION", "Detail": f"Estimated after-friction ratio 1:{net_rr_order:.2f}; target 1:2.00. Alert only; does not block a paper order."},
                     {"Rule": "Duplicate open order", "Status": "BLOCK" if open_for_signal else "PASS", "Detail": "This signal already has an open paper position." if open_for_signal else "No open paper position exists for this signal."},
                 ]
                 st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
-                hard_order_pass = supported_order and geometry_order and risk_pass and rr_pass and not open_for_signal
+                hard_order_pass = supported_order and geometry_order and not open_for_signal
+                if not risk_pass:
+                    st.warning(f"RISK ALERT · Estimated loss ${estimated_loss:.2f} is above the 2% guideline of ${risk_budget:.2f}. The warning is educational; you can still place this paper order.")
+                if not rr_pass:
+                    st.warning(f"REWARD-TO-RISK ALERT · Estimated net ratio is 1:{net_rr_order:.2f}, below your 1:2 guideline. The warning is educational; you can still place this paper order.")
+                if not geometry_order:
+                    st.error("PRICE GEOMETRY ERROR · For BUY use SL < entry < TP; for SELL use TP < entry < SL. Correct the levels before placing the order.")
+                lesson_cards_order = knowledge_lesson_pack(symbol_order, side, (estimated_loss / current_balance * 100.0) if current_balance > 0 else 0.0, net_rr_order, [], False)
+                render_knowledge_lesson_pack(lesson_cards_order, (estimated_loss / current_balance * 100.0) if current_balance > 0 else 0.0, net_rr_order, compact=True)
                 st.warning("Paper-only execution. Price fills and costs are estimates; the worker must be deployed separately for monitoring while this browser is closed.")
                 approved_order = st.checkbox("I reviewed the signal, entry, stop-loss, take-profit, position size and estimated costs. I approve opening this PAPER trade only.", key=f"po_approve_{suffix}")
                 if st.button("PLACE PAPER ORDER", type="primary", use_container_width=True, disabled=not (approved_order and hard_order_pass), key=f"po_submit_{suffix}"):
                     try:
-                        # Recheck the account budget and duplicate state inside the write transaction.
+                        # Risk and R:R are advisory guidelines; duplicate prevention remains a technical safeguard.
                         with engine.begin() as conn:
-                            lock_rows = conn.execute(text("SELECT initial_balance FROM paper_account WHERE id=1 FOR UPDATE")).mappings().first()
-                            locked_balance = float(lock_rows["initial_balance"] if lock_rows else 100.0)
-                            realized_rows = conn.execute(text("SELECT COALESCE(SUM(pnl_usd),0) FROM paper_trades WHERE outcome IN ('CLOSED','WIN','LOSS','BREAKEVEN','STOPPED','TARGET_HIT')")).first()
-                            locked_balance += float(realized_rows[0] or 0)
-                            locked_budget = max(0.0, locked_balance * 0.02)
-                            if estimated_loss > locked_budget + 1e-9:
-                                raise ValueError(f"Risk now exceeds the 2% account limit (${locked_budget:.2f}). Review the order again.")
                             duplicate = conn.execute(text("SELECT id FROM paper_trades WHERE signal_id=:sid AND outcome='OPEN' FOR UPDATE"), {"sid": signal["id"]}).first()
                             if duplicate:
                                 raise ValueError("This signal already has an open paper position.")
@@ -1711,7 +1780,14 @@ with tab_place:
                                 "lots": float(lots_order), "friction": float(friction_order),
                                 "approval_key": f"signal:{signal['id']}",
                             })
-                        st.success("PAPER ORDER PLACED. It is saved in PostgreSQL and will remain after you leave, provided the database persists. The separate paper_engine.py worker must be running to update prices and simulate SL/TP while you are away. No live broker order was sent.")
+                        try:
+                            db_execute("INSERT INTO learning_events(id,event_type,symbol,direction,trade_id,lesson_snapshot) VALUES (:id,'ORDER_PLACED',:symbol,:direction,:trade_id,:snapshot)", {
+                                "id": str(uuid.uuid4()), "symbol": symbol_order, "direction": side,
+                                "trade_id": None, "snapshot": json.dumps([{"id": x["id"], "title": x["title"], "domain": x["domain"]} for x in lesson_cards_order]),
+                            })
+                        except Exception:
+                            pass
+                        st.success("PAPER ORDER PLACED. Your risk/R:R alerts did not block it. It is saved in PostgreSQL; the separate paper_engine.py worker must be running for monitoring while you are away. No live broker order was sent.")
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Paper order was not placed ({type(exc).__name__}): {exc}")
@@ -1973,6 +2049,88 @@ with tab_learning:
             st.markdown("### Experiment history")
             st.dataframe(pd.DataFrame(experiments), use_container_width=True, hide_index=True)
 
+# -------------------- Automatic learning flow tab --------------------
+with tab_learning_flow:
+    st.markdown('<div class="editorial-kicker">THE COACH / STUDY · APPLY · REVIEW</div>', unsafe_allow_html=True)
+    st.title("Your Forex learning flow")
+    st.write("This panel automatically retrieves relevant lessons from the built-in knowledge catalogue. It teaches the reasoning behind a setup, then uses recorded paper outcomes to prompt review. It does not learn a winning strategy from one trade or silently change the system.")
+
+    active = st.session_state.get("last_analysis")
+    if active:
+        active_plan = active.get("plan", {})
+        st.markdown("### Live market lesson")
+        st.caption(f"Context: {active.get('symbol','Unknown')} · {active.get('interval','Unknown')} · assessment {active_plan.get('decision','WAIT')}")
+        active_conflicts = active_plan.get("conflicts", []) or []
+        active_cards = knowledge_lesson_pack(active.get("symbol", ""), active_plan.get("decision", ""), None, active_plan.get("net_rr", None), active_conflicts, bool(active.get("news")))
+        render_knowledge_lesson_pack(active_cards)
+    else:
+        st.info("Analyse a market in Market terminal. The learning flow will then pull lessons related to the current market context.")
+        starter_cards = knowledge_lesson_pack()
+        render_knowledge_lesson_pack(starter_cards)
+
+    st.markdown("### Review what the paper account is teaching you")
+    if engine is None:
+        st.warning("Connect persistent PostgreSQL to retain the lesson history and paper-trade outcomes across sessions.")
+    else:
+        try:
+            outcomes = db_execute("SELECT id,created_at,symbol,direction,entry,stop,target,risk_usd,planned_net_rr,outcome,pnl_usd,notes FROM paper_trades ORDER BY created_at DESC LIMIT 100", fetch=True)
+            if not outcomes:
+                st.info("No completed or open paper trades yet. After you place paper orders, this section will help you review the evidence and outcomes.")
+            else:
+                odf = pd.DataFrame(outcomes)
+                st.dataframe(odf[[c for c in ["created_at","symbol","direction","entry","stop","target","risk_usd","planned_net_rr","outcome","pnl_usd"] if c in odf.columns]], use_container_width=True, hide_index=True)
+                closed = [x for x in outcomes if x.get("outcome") in ("CLOSED","WIN","LOSS","BREAKEVEN","STOPPED","TARGET_HIT") and x.get("pnl_usd") is not None]
+                if closed:
+                    pnls = [float(x.get("pnl_usd") or 0) for x in closed]
+                    wins = sum(v > 0 for v in pnls)
+                    losses = sum(v < 0 for v in pnls)
+                    avg = sum(pnls) / len(pnls)
+                    l1,l2,l3,l4 = st.columns(4)
+                    l1.metric("Closed sample", str(len(closed)))
+                    l2.metric("Positive outcomes", str(wins))
+                    l3.metric("Negative outcomes", str(losses))
+                    l4.metric("Average recorded P/L", f"${avg:+.2f}")
+                    st.info("Teaching note: this is descriptive feedback from your recorded paper sample, not proof of future profitability. Review cost assumptions, setup quality, market regime and whether the sample is large enough before changing a strategy.")
+                    review_cards = knowledge_lesson_pack(trade_outcome=True)
+                    render_knowledge_lesson_pack(review_cards, compact=True)
+                else:
+                    st.info("There are not enough closed outcomes for a performance review yet. Open trades show exposure, not a final result.")
+            logs = db_execute("SELECT created_at,event_type,symbol,direction,lesson_snapshot FROM learning_events ORDER BY created_at DESC LIMIT 30", fetch=True)
+            if logs:
+                st.markdown("### Saved learning snapshots")
+                for log in logs:
+                    with st.expander(f"{log.get('created_at')} · {log.get('event_type')} · {log.get('symbol')} {log.get('direction')}"):
+                        try:
+                            snapshot = json.loads(log.get("lesson_snapshot") or "[]")
+                            for lesson in snapshot:
+                                st.write(f"**{lesson.get('title','Lesson')}** · {lesson.get('domain','Knowledge base')}")
+                        except Exception:
+                            st.write(log.get("lesson_snapshot", "No lesson snapshot"))
+                st.markdown("### Add your learning reflection")
+                log_labels = {f"{x.get('created_at')} · {x.get('symbol')} {x.get('direction')} · {str(x.get('id',''))[:8]}": x for x in logs}
+                chosen_log_label = st.selectbox("Learning event", list(log_labels.keys()), key="learning_reflection_event")
+                chosen_log = log_labels[chosen_log_label]
+                reflection = st.text_area("What did this setup or outcome teach you?", value=chosen_log.get("reflection") or "", key=f"learning_reflection_{chosen_log.get('id')}")
+                if st.button("Save learning reflection", key="save_learning_reflection"):
+                    try:
+                        db_execute("UPDATE learning_events SET reflection=:reflection WHERE id=:id", {"reflection": reflection, "id": chosen_log["id"]})
+                        st.success("Reflection saved to the persistent learning history.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not save reflection ({type(exc).__name__}).")
+        except Exception as exc:
+            st.warning(f"Learning history could not be loaded ({type(exc).__name__}).")
+
+    st.markdown("### How the learning loop works")
+    st.markdown("""
+    1. **Study:** retrieve concepts from the knowledge catalogue that match the current decision, risk, costs, news and uncertainty.
+    2. **Apply:** show the relevant lesson when you calculate or review an order; risk and R:R are warnings, not order blocks.
+    3. **Record:** save the paper order and the lesson snapshot alongside the persistent account history.
+    4. **Review:** compare completed outcomes, costs, drawdown and sample size.
+    5. **Improve carefully:** save proposed strategy changes for chronological validation and human approval. The app never treats one win as proof or auto-promotes a strategy.
+    """)
+
+
 # -------------------- Knowledge base tab --------------------
 
 with tab_knowledge:
@@ -2086,7 +2244,7 @@ with tab_knowledge:
     4. **Validated** — chronological out-of-sample evaluation supports the stated use, with costs and sample size disclosed.
     5. **Needs review** — evidence, source quality or implementation has become questionable.
 
-    The app does not automatically promote records through these stages. Human review is required, and the hard paper-risk controls cannot be changed by a knowledge record.
+    The app does not automatically promote records through these stages. Human review is required. Risk and reward-to-risk guidelines are educational alerts; valid paper orders remain subject to manual approval and technical integrity checks.
     """)
 
 st.divider()
