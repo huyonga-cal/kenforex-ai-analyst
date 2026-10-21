@@ -335,7 +335,19 @@ def init_db():
             outcome TEXT NOT NULL DEFAULT 'OPEN',
             exit_price DOUBLE PRECISION,
             pnl_usd DOUBLE PRECISION,
-            notes TEXT
+            notes TEXT,
+            lots DOUBLE PRECISION NOT NULL DEFAULT 0.01,
+            friction_pips DOUBLE PRECISION NOT NULL DEFAULT 1.2,
+            mark_price DOUBLE PRECISION,
+            unrealized_pnl_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+            last_price_at TIMESTAMPTZ,
+            closed_at TIMESTAMPTZ,
+            approval_key TEXT
+        )""",
+        """CREATE TABLE IF NOT EXISTS paper_account (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            initial_balance DOUBLE PRECISION NOT NULL DEFAULT 100.0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )""",
         """CREATE TABLE IF NOT EXISTS strategy_experiments (
             id TEXT PRIMARY KEY,
@@ -397,6 +409,13 @@ def init_db():
                 "signal_id": "TEXT",
                 "planned_net_rr": "DOUBLE PRECISION DEFAULT 0",
                 "net_rr": "DOUBLE PRECISION",
+                "lots": "DOUBLE PRECISION NOT NULL DEFAULT 0.01",
+                "friction_pips": "DOUBLE PRECISION NOT NULL DEFAULT 1.2",
+                "mark_price": "DOUBLE PRECISION",
+                "unrealized_pnl_usd": "DOUBLE PRECISION NOT NULL DEFAULT 0",
+                "last_price_at": "TIMESTAMPTZ",
+                "closed_at": "TIMESTAMPTZ",
+                "approval_key": "TEXT",
             },
         }
 
@@ -407,6 +426,9 @@ def init_db():
                     f"{column} {datatype}"
                 ))
 
+        conn.execute(text("INSERT INTO paper_account(id, initial_balance) VALUES (1, 100.0) ON CONFLICT(id) DO NOTHING"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_trade_approval_key ON paper_trades(approval_key) WHERE approval_key IS NOT NULL"))
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_open_paper_signal ON paper_trades(signal_id) WHERE signal_id IS NOT NULL AND outcome='OPEN'"))
         conn.execute(text("""
             UPDATE signals
             SET interval = COALESCE(interval, timeframe, 'unknown'),
@@ -1077,8 +1099,8 @@ else:
         "across app restarts."
     )
 
-tab_analysis, tab_setups, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
-    "Market terminal", "Execution setups", "News & context", "Paper journal", "Strategy review", "Knowledge base"
+tab_analysis, tab_setups, tab_account, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
+    "Market terminal", "Execution setups", "Paper account", "News & context", "Paper journal", "Strategy review", "Knowledge base"
 ])
 
 
@@ -1313,10 +1335,10 @@ with tab_analysis:
                         db_execute("""
                             INSERT INTO paper_trades(
                                 id,signal_id,symbol,direction,entry,stop,target,
-                                risk_usd,planned_net_rr,outcome,notes
+                                risk_usd,planned_net_rr,outcome,notes,lots,friction_pips,approval_key
                             ) VALUES (
                                 :id,:signal,:symbol,:direction,:entry,:stop,:target,
-                                :risk,:rr,'OPEN',:notes
+                                :risk,:rr,'OPEN',:notes,:lots,:friction,:approval_key
                             )
                         """, {
                             "id": str(uuid.uuid4()),
@@ -1329,6 +1351,9 @@ with tab_analysis:
                             "risk": float(plan["estimated_risk_usd"]),
                             "rr": float(plan["planned_net_rr"]),
                             "notes": "Manually approved paper trade. No broker order was sent.",
+                            "lots": float(plan.get("lots") or 0.01),
+                            "friction": float(plan.get("friction_pips") or 1.2),
+                            "approval_key": f"signal:{saved.get('signal_id')}" if saved.get("signal_id") else None,
                         })
                         st.success("Paper trade recorded as OPEN. No live order was sent.")
                         st.rerun()
@@ -1527,10 +1552,10 @@ with tab_setups:
                         db_execute("""
                             INSERT INTO paper_trades(
                                 id,signal_id,symbol,direction,entry,stop,target,
-                                risk_usd,planned_net_rr,outcome,notes
+                                risk_usd,planned_net_rr,outcome,notes,lots,friction_pips,approval_key
                             ) VALUES (
                                 :id,:signal,:symbol,:direction,:entry,:stop,:target,
-                                :risk,:rr,'OPEN',:notes
+                                :risk,:rr,'OPEN',:notes,:lots,:friction,:approval_key
                             )
                         """, {
                             "id": str(uuid.uuid4()),
@@ -1543,6 +1568,9 @@ with tab_setups:
                             "risk": estimated_risk,
                             "rr": net_rr,
                             "notes": f"Human-approved paper scenario. Analysis decision={plan.get('decision')}; human_scenario={human_scenario}; estimated stop={stop_pips:.2f} pips; target={target_pips:.2f} pips; size={lots:.2f} lots; costs={friction_pips:.2f} pips. No broker order sent.",
+                            "lots": lots,
+                            "friction": friction_pips,
+                            "approval_key": f"scenario:{analysis_id}",
                         })
                         st.success("Paper trade recorded. No live order was sent.")
                         st.rerun()
@@ -1576,6 +1604,67 @@ with tab_setups:
 
 
 # -------------------- News tab -------------------------------
+
+# -------------------- Persistent paper account dashboard --------------------
+with tab_account:
+    st.markdown('<div class="editorial-kicker">PAPER ACCOUNT / SIMULATED PERFORMANCE</div>', unsafe_allow_html=True)
+    st.subheader("Your $100 paper account")
+    st.caption("Persistent simulated account. Background prices and SL/TP monitoring require paper_engine.py to run as a separate worker. No broker orders are sent.")
+    if st.button("Refresh account values", key="refresh_paper_account"):
+        st.rerun()
+    if engine is None:
+        st.error("Persistent account unavailable: configure DATABASE_URL.")
+    else:
+        try:
+            db_execute("INSERT INTO paper_account(id,initial_balance) VALUES (1,100.0) ON CONFLICT(id) DO NOTHING")
+            initial = float(db_execute("SELECT initial_balance FROM paper_account WHERE id=1", fetch=True)[0]["initial_balance"])
+            rows = db_execute("SELECT * FROM paper_trades ORDER BY created_at DESC", fetch=True)
+            closed_rows = [r for r in rows if r.get("outcome") in ("WIN","LOSS","BREAKEVEN","STOPPED","TARGET_HIT","CLOSED")]
+            open_rows = [r for r in rows if r.get("outcome") == "OPEN"]
+            realized = sum(float(r.get("pnl_usd") or 0) for r in closed_rows)
+            unrealized = sum(float(r.get("unrealized_pnl_usd") or 0) for r in open_rows)
+            balance_value = initial + realized
+            equity_value = balance_value + unrealized
+            a,b,c,d = st.columns(4)
+            a.metric("Balance", f"${balance_value:.2f}", f"{realized:+.2f} realized")
+            b.metric("Equity", f"${equity_value:.2f}", f"{unrealized:+.2f} open P&L")
+            c.metric("Open positions", str(len(open_rows)))
+            d.metric("Open planned risk", f"${sum(float(r.get('risk_usd') or 0) for r in open_rows):.2f}")
+            st.markdown("### Open positions")
+            if open_rows:
+                display = [{"Opened":r.get("created_at"),"Symbol":r.get("symbol"),"Side":r.get("direction"),"Lots":r.get("lots"),"Entry":r.get("entry"),"Latest mark":r.get("mark_price"),"SL":r.get("stop"),"TP":r.get("target"),"Unrealized P&L":r.get("unrealized_pnl_usd"),"Last price update":r.get("last_price_at")} for r in open_rows]
+                st.dataframe(pd.DataFrame(display), use_container_width=True, hide_index=True)
+                labels = {f"{r['symbol']} {r['direction']} {str(r['id'])[:8]}":r for r in open_rows}
+                chosen = labels[st.selectbox("Select a position to close manually", list(labels.keys()), key="account_close_select")]
+                exit_price = st.number_input("Simulated exit price", min_value=0.00000001, value=float(chosen.get("mark_price") or chosen["entry"]), format="%.8f", key="account_exit_price")
+                confirmed = st.checkbox("I confirm closing this simulated position at the entered price.", key="account_confirm_close")
+                if st.button("Close paper position", disabled=not confirmed, key="account_close_button"):
+                    try:
+                        with engine.begin() as conn:
+                            trade = conn.execute(text("SELECT * FROM paper_trades WHERE id=:id FOR UPDATE"), {"id":chosen["id"]}).mappings().first()
+                            if not trade or trade["outcome"] != "OPEN":
+                                raise ValueError("Position is no longer open.")
+                            sym = str(trade["symbol"])
+                            if not sym.endswith("/USD") or "XAU" in sym or "XAG" in sym:
+                                raise ValueError("Automatic P&L conversion is not enabled for this instrument until its contract and conversion rules are verified.")
+                            lots = float(trade.get("lots") or .01)
+                            gross = ((exit_price-float(trade["entry"])) if trade["direction"]=="BUY" else (float(trade["entry"])-exit_price))*100000*lots
+                            cost = float(trade.get("friction_pips") or 1.2)*10*lots
+                            pnl = gross-cost
+                            conn.execute(text("UPDATE paper_trades SET outcome='CLOSED',exit_price=:exit,pnl_usd=:pnl,unrealized_pnl_usd=0,mark_price=:exit,closed_at=NOW(),notes=COALESCE(notes,'') || :note WHERE id=:id AND outcome='OPEN'"), {"exit":exit_price,"pnl":pnl,"id":chosen["id"],"note":f"\nManually closed in paper account at {exit_price}; estimated costs applied; no live order."})
+                        st.success(f"Paper position closed. Estimated realized P&L: ${pnl:+.2f}")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Close failed: {type(exc).__name__}: {exc}")
+            else:
+                st.info("No open positions yet. Review an execution setup and manually approve a paper trade to begin.")
+            st.markdown("### Closed trade history")
+            if closed_rows:
+                st.dataframe(pd.DataFrame([{"Closed":r.get("closed_at"),"Symbol":r.get("symbol"),"Side":r.get("direction"),"Lots":r.get("lots"),"Exit":r.get("exit_price"),"Net P&L":r.get("pnl_usd"),"Outcome":r.get("outcome")} for r in closed_rows]), use_container_width=True, hide_index=True)
+            st.caption("Automated price/P&L handling is intentionally limited to USD-quoted major FX pairs. Other instruments are skipped rather than silently mispriced. Refresh the app to reload dashboard values.")
+        except Exception as exc:
+            st.error(f"Could not load paper account ({type(exc).__name__}). Check database schema and logs.")
+
 
 with tab_news:
     st.markdown('<div class="editorial-kicker">THE NEWS / CONTEXT, NOT CERTAINTY</div>', unsafe_allow_html=True)
