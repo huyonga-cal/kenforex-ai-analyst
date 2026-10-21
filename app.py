@@ -1077,8 +1077,8 @@ else:
         "across app restarts."
     )
 
-tab_analysis, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
-    "Market terminal", "News & context", "Paper journal", "Strategy review", "Knowledge base"
+tab_analysis, tab_setups, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
+    "Market terminal", "Execution setups", "News & context", "Paper journal", "Strategy review", "Knowledge base"
 ])
 
 
@@ -1397,6 +1397,68 @@ with tab_analysis:
             "then run an analysis. The market assessment will remain visible even when "
             "the right decision is to wait."
         )
+
+
+# -------------------- Execution setups tab -------------------
+
+with tab_setups:
+    st.markdown('<div class="editorial-kicker">THE SETUP / PLAN BEFORE APPROVAL</div>', unsafe_allow_html=True)
+    st.subheader("Execution setups")
+    st.caption("Review candidate entry, invalidation, target, estimated size and risk before manually approving any paper trade. No live orders are sent.")
+
+    current = st.session_state.get("last_analysis")
+    if current:
+        plan = current["plan"]
+        st.markdown(f"### Current assessment · {current['symbol']} · {current['interval']}")
+        decision = plan.get("decision", "WAIT")
+        if decision in ("BUY", "SELL") and all(plan.get(k) is not None for k in ("entry", "stop", "target")):
+            a, b, c, d = st.columns(4)
+            a.metric("Direction", decision)
+            b.metric("Entry", format_price(plan["entry"], current["symbol"]))
+            c.metric("Stop-loss", format_price(plan["stop"], current["symbol"]))
+            d.metric("Take-profit", format_price(plan["target"], current["symbol"]))
+            e, f, g, h = st.columns(4)
+            e.metric("Position size", f"{float(plan.get('lots') or 0):.2f} lots")
+            f.metric("Estimated risk", f"${float(plan.get('estimated_risk_usd') or 0):.2f}")
+            g.metric("Risk budget", f"${float(plan.get('risk_usd') or 0):.2f}")
+            h.metric("Estimated net R:R", f"1:{float(plan.get('planned_net_rr') or 0):.2f}")
+            checks = plan.get("risk_checks", [])
+            if checks:
+                st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+            st.info("To approve this candidate as a simulated trade, return to Market terminal and use the explicit Open paper trade confirmation. This screen does not execute trades.")
+        else:
+            st.warning(f"No qualified execution setup is available for the latest assessment ({decision}). The system is intentionally not inventing entry, stop-loss or target levels when its current rules do not produce a valid candidate.")
+            reasons = plan.get("reasons", [])
+            if reasons:
+                st.markdown("**Why no setup is available yet**")
+                for reason in reasons:
+                    st.write("— " + str(reason))
+            st.caption("Run Analyse market again after reviewing the selected instrument and timeframe. A WAIT result is a valid analytical outcome, not an execution setup.")
+    else:
+        st.info("No current assessment yet. Open Market terminal and select Analyse market. The resulting setup or reason for waiting will appear here.")
+
+    st.markdown("---")
+    st.markdown("### Recent saved execution candidates")
+    if engine is None:
+        st.warning("Configure DATABASE_URL to see saved setups across sessions. The current-session assessment above can still be reviewed.")
+    else:
+        try:
+            saved_setups = db_execute("""
+                SELECT id,created_at,symbol,interval,decision,entry,stop,target,risk_usd,planned_net_rr
+                FROM signals
+                WHERE decision IN ('BUY','SELL')
+                  AND entry IS NOT NULL AND stop IS NOT NULL AND target IS NOT NULL
+                ORDER BY created_at DESC LIMIT 50
+            """, fetch=True)
+            if saved_setups:
+                setups_df = pd.DataFrame(saved_setups)
+                setups_df["status"] = "Candidate — requires review"
+                st.dataframe(setups_df, use_container_width=True, hide_index=True)
+                st.caption("Saved candidates are historical analysis records, not open trades. Check freshness, market conditions and risk checks again before any paper approval.")
+            else:
+                st.info("No BUY/SELL candidates have been saved yet. Run an analysis; candidates are saved when database persistence is available.")
+        except Exception as exc:
+            st.error(f"Could not load saved setups ({type(exc).__name__}). Check database connectivity and logs.")
 
 
 # -------------------- News tab -------------------------------
