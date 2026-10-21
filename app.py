@@ -657,11 +657,17 @@ def create_trade_plan(
         if demand and demand["high"] <= entry - min_rr * risk_distance:
             target = demand["high"]
 
+    directionally_valid = (
+        (decision == "BUY" and stop < entry < target)
+        or (decision == "SELL" and target < entry < stop)
+    )
     if risk_distance <= 0 or pip <= 0 or not all(
         math.isfinite(v) for v in (entry, stop, target)
-    ):
+    ) or not directionally_valid:
         plan["decision"] = "NO TRADE"
-        plan["reasons"].append("A valid entry, stop and target could not be constructed.")
+        plan["reasons"].append(
+            "A directionally valid entry, stop and target could not be constructed."
+        )
         return plan
 
     stop_pips = abs(entry - stop) / pip
@@ -1179,6 +1185,58 @@ with tab_analysis:
                 "A calculated 1:2 ratio is not a promise of realized 1:2 performance."
             )
 
+            approval_ok = (
+                plan.get("decision") in ("BUY", "SELL")
+                and plan.get("entry") is not None
+                and plan.get("stop") is not None
+                and plan.get("target") is not None
+                and float(plan.get("estimated_risk_usd") or 0) <= float(plan.get("risk_usd") or 0) + 1e-9
+                and float(plan.get("planned_net_rr") or 0) >= MIN_RR
+                and float(plan.get("lots") or 0) >= 0.01
+            )
+            if engine is None:
+                st.warning("Paper-trade approval is disabled until persistent database storage is configured.")
+            elif not approval_ok:
+                st.warning("This candidate does not pass every hard risk check and cannot be opened.")
+            else:
+                st.warning("Manual confirmation only. This records a simulated trade; it does not contact a broker.")
+                confirm_trade = st.checkbox(
+                    f"I approve opening this {plan['decision']} paper trade for {saved['symbol']}.",
+                    key=f"approve_{saved.get('signal_id') or saved['created_at']}",
+                )
+                if st.button(
+                    "Open paper trade",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not confirm_trade,
+                    key=f"open_paper_{saved.get('signal_id') or saved['created_at']}",
+                ):
+                    try:
+                        db_execute("""
+                            INSERT INTO paper_trades(
+                                id,signal_id,symbol,direction,entry,stop,target,
+                                risk_usd,planned_net_rr,net_rr,outcome,notes
+                            ) VALUES (
+                                :id,:signal,:symbol,:direction,:entry,:stop,:target,
+                                :risk,:rr,:rr,'OPEN',:notes
+                            )
+                        """, {
+                            "id": str(uuid.uuid4()),
+                            "signal": saved.get("signal_id"),
+                            "symbol": saved["symbol"],
+                            "direction": plan["decision"],
+                            "entry": float(plan["entry"]),
+                            "stop": float(plan["stop"]),
+                            "target": float(plan["target"]),
+                            "risk": float(plan["estimated_risk_usd"]),
+                            "rr": float(plan["planned_net_rr"]),
+                            "notes": "Manually approved paper trade. No broker order was sent.",
+                        })
+                        st.success("Paper trade recorded as OPEN. No live order was sent.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not open paper trade ({type(exc).__name__}).")
+
         st.markdown("### Price structure")
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
@@ -1296,50 +1354,54 @@ with tab_journal:
                 ORDER BY created_at DESC LIMIT 100
             """, fetch=True)
 
-            with st.expander("Record an outcome"):
-                if signals:
+            with st.expander("Record or update a paper-trade outcome"):
+                open_records = db_execute(
+                    "SELECT * FROM paper_trades WHERE outcome='OPEN' ORDER BY created_at DESC LIMIT 200",
+                    fetch=True,
+                )
+                if open_records:
                     labels = {
-                        f"{r['created_at']} | {r['symbol']} | {r['decision']} | {r['id'][:8]}": r
-                        for r in signals
+                        f"{r['created_at']} | {r['symbol']} | {r['direction']} | {r['id'][:8]}": r
+                        for r in open_records
                     }
-                    chosen_label = st.selectbox("Signal record", list(labels.keys()))
+                    chosen_label = st.selectbox("Open paper trade", list(labels.keys()))
                     chosen = labels[chosen_label]
                     outcome = st.selectbox(
-                        "Outcome", ["WIN", "LOSS", "BREAKEVEN", "CANCELLED"]
+                        "Outcome", ["WIN", "LOSS", "BREAKEVEN", "CANCELLED"],
+                        key="paper_outcome_choice",
                     )
                     exit_price = st.number_input(
-                        "Exit price (0 if unknown)", min_value=0.0, value=0.0, format="%.6f"
+                        "Exit price (0 if unknown)", min_value=0.0, value=0.0,
+                        format="%.6f", key="paper_exit_price",
                     )
-                    pnl = st.number_input("Simulated realized P/L (USD)", value=0.0, step=0.1)
-                    notes = st.text_area("Notes on execution, market context and costs")
-                    if st.button("Save paper outcome"):
-                        db_execute("""
-                            INSERT INTO paper_trades(
-                                id,signal_id,symbol,direction,entry,stop,target,
-                                risk_usd,planned_net_rr,net_rr,outcome,exit_price,pnl_usd,notes
-                            ) VALUES (
-                                :id,:signal,:symbol,:direction,:entry,:stop,:target,
-                                :risk,:rr,:rr,:outcome,:exit,:pnl,:notes
-                            )
-                        """, {
-                            "id": str(uuid.uuid4()),
-                            "signal": chosen["id"],
-                            "symbol": chosen["symbol"],
-                            "direction": chosen["decision"],
-                            "entry": chosen["entry"],
-                            "stop": chosen["stop"],
-                            "target": chosen["target"],
-                            "risk": chosen["risk_usd"] or 0,
-                            "rr": chosen["planned_net_rr"] or 0,
-                            "outcome": outcome,
-                            "exit": exit_price or None,
-                            "pnl": pnl,
-                            "notes": notes,
-                        })
-                        st.success("Outcome saved.")
-                        st.rerun()
+                    pnl = st.number_input(
+                        "Simulated realized P/L (USD)", value=0.0, step=0.1,
+                        key="paper_realized_pnl",
+                    )
+                    notes = st.text_area(
+                        "Notes on execution, market context and costs",
+                        key="paper_outcome_notes",
+                    )
+                    if st.button("Save paper outcome", key="save_paper_outcome"):
+                        try:
+                            db_execute("""
+                                UPDATE paper_trades
+                                SET outcome=:outcome, exit_price=:exit, pnl_usd=:pnl,
+                                    notes=COALESCE(notes, '') || :extra_notes
+                                WHERE id=:id AND outcome='OPEN'
+                            """, {
+                                "id": chosen["id"],
+                                "outcome": outcome,
+                                "exit": exit_price or None,
+                                "pnl": float(pnl),
+                                "extra_notes": ("\\nOutcome notes: " + notes) if notes.strip() else "",
+                            })
+                            st.success("Paper-trade outcome saved.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Could not save outcome ({type(exc).__name__}).")
                 else:
-                    st.info("No complete BUY/SELL signal records are available yet.")
+                    st.info("There are no OPEN paper trades. Approve a valid candidate in Market analysis first.")
 
             trades = db_execute(
                 "SELECT * FROM paper_trades ORDER BY created_at DESC LIMIT 500",
