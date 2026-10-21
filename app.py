@@ -1099,8 +1099,8 @@ else:
         "across app restarts."
     )
 
-tab_analysis, tab_setups, tab_account, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
-    "Market terminal", "Execution setups", "Paper account", "News & context", "Paper journal", "Strategy review", "Knowledge base"
+tab_analysis, tab_setups, tab_place, tab_account, tab_news, tab_journal, tab_learning, tab_knowledge = st.tabs([
+    "Market terminal", "Execution setups", "PLACE ORDER", "Paper account", "News & context", "Paper journal", "Strategy review", "Knowledge base"
 ])
 
 
@@ -1601,6 +1601,129 @@ with tab_setups:
                 st.info("No BUY/SELL candidates have been saved yet. Run an analysis; candidates are saved when database persistence is available.")
         except Exception as exc:
             st.error(f"Could not load saved setups ({type(exc).__name__}). Check database connectivity and logs.")
+
+
+# -------------------- Dedicated manual paper-order ticket --------------------
+with tab_place:
+    st.markdown('<div class="editorial-kicker">ORDER DESK / HUMAN APPROVAL REQUIRED</div>', unsafe_allow_html=True)
+    st.title("Place a paper order")
+    st.caption("This ticket creates a simulated position in your persistent PostgreSQL account. It never sends a live broker order.")
+
+    if engine is None:
+        st.error("Order placement is unavailable because DATABASE_URL is not configured. Add the PostgreSQL connection in your hosting secrets, then redeploy.")
+    else:
+        try:
+            account_rows = db_execute("SELECT initial_balance FROM paper_account WHERE id=1", fetch=True)
+            initial_balance = float(account_rows[0]["initial_balance"]) if account_rows else 100.0
+            all_trades = db_execute("SELECT outcome,pnl_usd,unrealized_pnl_usd,risk_usd FROM paper_trades", fetch=True)
+            closed_for_balance = [t for t in all_trades if t.get("outcome") in ("CLOSED", "WIN", "LOSS", "BREAKEVEN", "STOPPED", "TARGET_HIT")]
+            current_balance = initial_balance + sum(float(t.get("pnl_usd") or 0) for t in closed_for_balance)
+            risk_budget = max(0.0, current_balance * 0.02)
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Account balance", f"${current_balance:.2f}")
+            m2.metric("Maximum risk / order", f"${risk_budget:.2f}", "2% hard limit")
+            m3.metric("Minimum net R:R", "1:2.00", "hard requirement")
+
+            candidates = db_execute("""
+                SELECT id,created_at,symbol,interval,decision,entry,stop,target,planned_net_rr
+                FROM signals
+                WHERE decision IN ('BUY','SELL') AND entry IS NOT NULL AND stop IS NOT NULL AND target IS NOT NULL
+                ORDER BY created_at DESC LIMIT 100
+            """, fetch=True)
+            if not candidates:
+                st.info("No saved BUY/SELL setup is available yet. Go to **Market terminal**, analyse a market, and return here. The saved setup will appear in this ticket.")
+            else:
+                def candidate_label(r):
+                    return f"{r['symbol']} · {r['decision']} · {r.get('interval') or 'TF ?'} · {str(r['created_at'])[:19]} · {str(r['id'])[:8]}"
+                by_label = {candidate_label(r): r for r in candidates}
+                selected_label = st.selectbox("Choose a saved signal", list(by_label.keys()), key="place_order_signal")
+                signal = by_label[selected_label]
+                symbol_order = str(signal["symbol"])
+                side = str(signal["decision"]).upper()
+                suffix = str(signal["id"])[:12]
+
+                st.markdown("#### Review / adjust the paper order")
+                st.write(f"**{symbol_order} · {side}** — signal created {signal['created_at']}")
+                c1, c2, c3 = st.columns(3)
+                entry_order = c1.number_input("Entry price", min_value=0.00000001, value=float(signal["entry"]), format="%.8f", key=f"po_entry_{suffix}")
+                stop_order = c2.number_input("Stop-loss", min_value=0.00000001, value=float(signal["stop"]), format="%.8f", key=f"po_stop_{suffix}")
+                target_order = c3.number_input("Take-profit", min_value=0.00000001, value=float(signal["target"]), format="%.8f", key=f"po_target_{suffix}")
+                c4, c5 = st.columns(2)
+                lots_order = c4.number_input("Position size (lots)", min_value=0.01, max_value=100.0, value=0.01, step=0.01, format="%.2f", key=f"po_lots_{suffix}")
+                friction_order = c5.number_input("Estimated round-trip friction (pips)", min_value=0.0, max_value=50.0, value=1.2, step=0.1, key=f"po_friction_{suffix}")
+
+                # The current paper engine has verified P&L arithmetic only for USD-quoted major FX pairs.
+                supported_order = symbol_order.endswith("/USD") and not any(x in symbol_order.upper() for x in ("XAU", "XAG"))
+                geometry_order = (stop_order < entry_order < target_order) if side == "BUY" else (target_order < entry_order < stop_order)
+                stop_distance = abs(entry_order - stop_order)
+                target_distance = abs(target_order - entry_order)
+                estimated_loss = stop_distance * 100000 * lots_order + friction_order * 10 * lots_order
+                estimated_gain = target_distance * 100000 * lots_order - friction_order * 10 * lots_order
+                net_rr_order = estimated_gain / estimated_loss if estimated_loss > 0 else 0.0
+                risk_pass = estimated_loss <= risk_budget + 1e-9
+                rr_pass = estimated_gain > 0 and net_rr_order >= MIN_RR
+                open_for_signal = db_execute("SELECT id FROM paper_trades WHERE signal_id=:sid AND outcome='OPEN'", {"sid": signal["id"]}, fetch=True)
+
+                a, b, c, d = st.columns(4)
+                a.metric("Estimated loss at SL", f"${estimated_loss:.2f}")
+                b.metric("Estimated net gain at TP", f"${estimated_gain:.2f}")
+                c.metric("Estimated net R:R", f"1:{net_rr_order:.2f}")
+                d.metric("Risk budget", f"${risk_budget:.2f}")
+
+                checks = [
+                    {"Rule": "Supported instrument", "Status": "PASS" if supported_order else "BLOCK", "Detail": "USD-quoted FX pair only; background P&L assumptions supported." if supported_order else "Current worker deliberately skips this symbol to avoid mispriced P&L."},
+                    {"Rule": "Entry / SL / TP geometry", "Status": "PASS" if geometry_order else "BLOCK", "Detail": "Levels match the selected direction." if geometry_order else "For BUY: SL < entry < TP. For SELL: TP < entry < SL."},
+                    {"Rule": "Maximum 2% risk", "Status": "PASS" if risk_pass else "BLOCK", "Detail": f"Estimated stop loss plus costs ${estimated_loss:.2f}; maximum allowed ${risk_budget:.2f}."},
+                    {"Rule": "Minimum net reward-to-risk", "Status": "PASS" if rr_pass else "BLOCK", "Detail": f"Estimated after-friction ratio 1:{net_rr_order:.2f}; minimum is 1:2.00."},
+                    {"Rule": "Duplicate open order", "Status": "BLOCK" if open_for_signal else "PASS", "Detail": "This signal already has an open paper position." if open_for_signal else "No open paper position exists for this signal."},
+                ]
+                st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
+                hard_order_pass = supported_order and geometry_order and risk_pass and rr_pass and not open_for_signal
+                st.warning("Paper-only execution. Price fills and costs are estimates; the worker must be deployed separately for monitoring while this browser is closed.")
+                approved_order = st.checkbox("I reviewed the signal, entry, stop-loss, take-profit, position size and estimated costs. I approve opening this PAPER trade only.", key=f"po_approve_{suffix}")
+                if st.button("PLACE PAPER ORDER", type="primary", use_container_width=True, disabled=not (approved_order and hard_order_pass), key=f"po_submit_{suffix}"):
+                    try:
+                        # Recheck the account budget and duplicate state inside the write transaction.
+                        with engine.begin() as conn:
+                            lock_rows = conn.execute(text("SELECT initial_balance FROM paper_account WHERE id=1 FOR UPDATE")).mappings().first()
+                            locked_balance = float(lock_rows["initial_balance"] if lock_rows else 100.0)
+                            realized_rows = conn.execute(text("SELECT COALESCE(SUM(pnl_usd),0) FROM paper_trades WHERE outcome IN ('CLOSED','WIN','LOSS','BREAKEVEN','STOPPED','TARGET_HIT')")).first()
+                            locked_balance += float(realized_rows[0] or 0)
+                            locked_budget = max(0.0, locked_balance * 0.02)
+                            if estimated_loss > locked_budget + 1e-9:
+                                raise ValueError(f"Risk now exceeds the 2% account limit (${locked_budget:.2f}). Review the order again.")
+                            duplicate = conn.execute(text("SELECT id FROM paper_trades WHERE signal_id=:sid AND outcome='OPEN' FOR UPDATE"), {"sid": signal["id"]}).first()
+                            if duplicate:
+                                raise ValueError("This signal already has an open paper position.")
+                            conn.execute(text("""
+                                INSERT INTO paper_trades(
+                                    id,signal_id,symbol,direction,entry,stop,target,risk_usd,planned_net_rr,
+                                    outcome,notes,lots,friction_pips,approval_key,mark_price,unrealized_pnl_usd
+                                ) VALUES (
+                                    :id,:signal,:symbol,:direction,:entry,:stop,:target,:risk,:rr,
+                                    'OPEN',:notes,:lots,:friction,:approval_key,:entry,0
+                                )
+                            """), {
+                                "id": str(uuid.uuid4()), "signal": signal["id"], "symbol": symbol_order,
+                                "direction": side, "entry": float(entry_order), "stop": float(stop_order),
+                                "target": float(target_order), "risk": float(estimated_loss), "rr": float(net_rr_order),
+                                "notes": "Manually approved via dedicated PLACE ORDER ticket. Paper simulation only; no broker order sent.",
+                                "lots": float(lots_order), "friction": float(friction_order),
+                                "approval_key": f"signal:{signal['id']}",
+                            })
+                        st.success("PAPER ORDER PLACED. It is saved in PostgreSQL and will remain after you leave, provided the database persists. The separate paper_engine.py worker must be running to update prices and simulate SL/TP while you are away. No live broker order was sent.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Paper order was not placed ({type(exc).__name__}): {exc}")
+
+                st.markdown("#### Your latest saved orders")
+                latest_orders = db_execute("SELECT created_at,symbol,direction,lots,entry,stop,target,outcome,pnl_usd,unrealized_pnl_usd,last_price_at FROM paper_trades ORDER BY created_at DESC LIMIT 20", fetch=True)
+                if latest_orders:
+                    st.dataframe(pd.DataFrame(latest_orders), use_container_width=True, hide_index=True)
+                else:
+                    st.info("No orders yet. Your first approved paper order will appear here and in Paper account.")
+        except Exception as exc:
+            st.error(f"Order ticket could not load ({type(exc).__name__}). Check DATABASE_URL and database migration status.")
 
 
 # -------------------- News tab -------------------------------
