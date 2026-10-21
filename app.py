@@ -1313,10 +1313,10 @@ with tab_analysis:
                         db_execute("""
                             INSERT INTO paper_trades(
                                 id,signal_id,symbol,direction,entry,stop,target,
-                                risk_usd,planned_net_rr,net_rr,outcome,notes
+                                risk_usd,planned_net_rr,outcome,notes
                             ) VALUES (
                                 :id,:signal,:symbol,:direction,:entry,:stop,:target,
-                                :risk,:rr,:rr,'OPEN',:notes
+                                :risk,:rr,'OPEN',:notes
                             )
                         """, {
                             "id": str(uuid.uuid4()),
@@ -1402,40 +1402,154 @@ with tab_analysis:
 # -------------------- Execution setups tab -------------------
 
 with tab_setups:
-    st.markdown('<div class="editorial-kicker">THE SETUP / PLAN BEFORE APPROVAL</div>', unsafe_allow_html=True)
-    st.subheader("Execution setups")
-    st.caption("Review candidate entry, invalidation, target, estimated size and risk before manually approving any paper trade. No live orders are sent.")
+    st.markdown('<div class="editorial-kicker">THE SETUP / YOUR DECISION</div>', unsafe_allow_html=True)
+    st.subheader("Execution workspace")
+    st.caption("You choose the direction and whether to proceed. The analyst calculates the plan and flags risk. This records paper trades only; it never sends broker orders.")
 
     current = st.session_state.get("last_analysis")
-    if current:
-        plan = current["plan"]
-        st.markdown(f"### Current assessment · {current['symbol']} · {current['interval']}")
-        decision = plan.get("decision", "WAIT")
-        if decision in ("BUY", "SELL") and all(plan.get(k) is not None for k in ("entry", "stop", "target")):
-            a, b, c, d = st.columns(4)
-            a.metric("Direction", decision)
-            b.metric("Entry", format_price(plan["entry"], current["symbol"]))
-            c.metric("Stop-loss", format_price(plan["stop"], current["symbol"]))
-            d.metric("Take-profit", format_price(plan["target"], current["symbol"]))
-            e, f, g, h = st.columns(4)
-            e.metric("Position size", f"{float(plan.get('lots') or 0):.2f} lots")
-            f.metric("Estimated risk", f"${float(plan.get('estimated_risk_usd') or 0):.2f}")
-            g.metric("Risk budget", f"${float(plan.get('risk_usd') or 0):.2f}")
-            h.metric("Estimated net R:R", f"1:{float(plan.get('planned_net_rr') or 0):.2f}")
-            checks = plan.get("risk_checks", [])
-            if checks:
-                st.dataframe(pd.DataFrame(checks), use_container_width=True, hide_index=True)
-            st.info("To approve this candidate as a simulated trade, return to Market terminal and use the explicit Open paper trade confirmation. This screen does not execute trades.")
-        else:
-            st.warning(f"No qualified execution setup is available for the latest assessment ({decision}). The system is intentionally not inventing entry, stop-loss or target levels when its current rules do not produce a valid candidate.")
-            reasons = plan.get("reasons", [])
-            if reasons:
-                st.markdown("**Why no setup is available yet**")
-                for reason in reasons:
-                    st.write("— " + str(reason))
-            st.caption("Run Analyse market again after reviewing the selected instrument and timeframe. A WAIT result is a valid analytical outcome, not an execution setup.")
+    if not current:
+        st.info("Run Analyse market first. The execution workspace will then use that analysis as its starting reference.")
     else:
-        st.info("No current assessment yet. Open Market terminal and select Analyse market. The resulting setup or reason for waiting will appear here.")
+        plan = current["plan"]
+        symbol_now = current["symbol"]
+        candles_now = current.get("candles")
+        analysis_id = str(current.get("signal_id") or current.get("created_at") or symbol_now).replace(" ", "_")
+        st.markdown(f"### {symbol_now} · {current['interval']} · latest assessment: **{plan.get('decision', 'WAIT')}**")
+        st.write("The analyst's direction is advisory, not an instruction. You may inspect a BUY or SELL scenario even if the assessment is WAIT, but the interface will label that as a human-selected scenario rather than an analyst-qualified signal.")
+
+        # Build neutral starter values when the analyst has no directional setup.
+        reference_entry = float(plan.get("entry") or (float(candles_now['close'].iloc[-1]) if candles_now is not None and len(candles_now) else 0.0))
+        atr_now = float(plan.get("atr") or 0.0)
+        proposed_direction = plan.get("decision") if plan.get("decision") in ("BUY", "SELL") else "BUY"
+        starter_stop_distance = max(atr_now, abs(reference_entry) * 0.001) if reference_entry > 0 else 0.0
+        if proposed_direction == "BUY":
+            starter_stop = float(plan.get("stop") or (reference_entry - 1.5 * starter_stop_distance))
+            starter_target = float(plan.get("target") or (reference_entry + 2.0 * abs(reference_entry - starter_stop)))
+        else:
+            starter_stop = float(plan.get("stop") or (reference_entry + 1.5 * starter_stop_distance))
+            starter_target = float(plan.get("target") or (reference_entry - 2.0 * abs(starter_stop - reference_entry)))
+
+        with st.form(f"execution_form_{analysis_id}"):
+            st.markdown("#### Define the scenario")
+            direction = st.radio("Your proposed direction", ["BUY", "SELL"], index=0 if proposed_direction == "BUY" else 1, horizontal=True)
+            e1, e2, e3 = st.columns(3)
+            entry = e1.number_input("Entry price", min_value=0.00000001, value=max(0.00000001, reference_entry), format="%.8f", key=f"exec_entry_{analysis_id}")
+            stop_default = starter_stop if direction == proposed_direction else (reference_entry - 1.5 * starter_stop_distance if direction == "BUY" else reference_entry + 1.5 * starter_stop_distance)
+            risk_distance_default = abs(entry - stop_default)
+            target_default = starter_target if direction == proposed_direction else (entry + 2 * risk_distance_default if direction == "BUY" else entry - 2 * risk_distance_default)
+            stop = e2.number_input("Stop-loss", min_value=0.00000001, value=max(0.00000001, float(stop_default)), format="%.8f", key=f"exec_stop_{analysis_id}")
+            target = e3.number_input("Take-profit", min_value=0.00000001, value=max(0.00000001, float(target_default)), format="%.8f", key=f"exec_target_{analysis_id}")
+            friction_pips = st.number_input("Estimated total spread + slippage (pips)", min_value=0.0, value=float(plan.get("friction_pips") or 1.2), step=0.1, key=f"exec_friction_{analysis_id}")
+            st.caption("You can edit entry, stop, target and cost assumptions. Lot size is calculated from the risk cap and rounded down to 0.01 lots. Pip value is an approximation, not a broker-verified quote.")
+            calculate = st.form_submit_button("Calculate risk & review flags", type="primary", use_container_width=True)
+
+        if calculate:
+            st.session_state[f"execution_calc_{analysis_id}"] = {
+                "direction": direction, "entry": float(entry), "stop": float(stop),
+                "target": float(target), "friction_pips": float(friction_pips),
+            }
+
+        scenario = st.session_state.get(f"execution_calc_{analysis_id}")
+        if scenario:
+            direction = scenario["direction"]
+            entry = float(scenario["entry"])
+            stop = float(scenario["stop"])
+            target = float(scenario["target"])
+            friction_pips = float(scenario["friction_pips"])
+            pip = pip_size_for(symbol_now)
+            risk_distance = (entry - stop) if direction == "BUY" else (stop - entry)
+            reward_distance = (target - entry) if direction == "BUY" else (entry - target)
+            geometry_ok = risk_distance > 0 and reward_distance > 0 and all(math.isfinite(v) and v > 0 for v in (entry, stop, target))
+            stop_pips = risk_distance / pip if geometry_ok else 0.0
+            target_pips = reward_distance / pip if geometry_ok else 0.0
+            effective_risk_pips = stop_pips + friction_pips if geometry_ok else 0.0
+            balance_now = float(balance)
+            risk_budget = balance_now * min(float(risk_pct), 2.0) / 100.0
+            pip_value = float(plan.get("pip_value_per_lot") or 0.0)
+            raw_lots = risk_budget / (effective_risk_pips * pip_value) if effective_risk_pips > 0 and pip_value > 0 else 0.0
+            lots = math.floor((raw_lots + 1e-12) / 0.01) * 0.01
+            estimated_risk = effective_risk_pips * pip_value * lots
+            net_reward_pips = max(0.0, target_pips - friction_pips) if geometry_ok else 0.0
+            estimated_reward = net_reward_pips * pip_value * lots
+            net_rr = estimated_reward / estimated_risk if estimated_risk > 0 else 0.0
+            direction_matches = plan.get("decision") == direction
+            risk_ok = estimated_risk <= risk_budget + 1e-9 and lots >= 0.01
+            rr_ok = net_rr >= MIN_RR
+            geometry_direction_ok = geometry_ok and ((direction == "BUY" and stop < entry < target) or (direction == "SELL" and target < entry < stop))
+            human_scenario = not direction_matches or plan.get("decision") not in ("BUY", "SELL")
+
+            st.markdown("---")
+            st.markdown("#### Calculated execution card")
+            if not geometry_direction_ok:
+                st.error("RED FLAG · Price geometry is invalid for the selected direction. Correct entry, stop-loss and take-profit before considering this scenario.")
+            elif not risk_ok:
+                st.error("RED FLAG · The risk budget or minimum lot-size check failed. Do not approve this calculated size.")
+            elif not rr_ok:
+                st.error(f"RED FLAG · Estimated net reward-to-risk is 1:{net_rr:.2f}; the required minimum is 1:2 after the entered friction estimate.")
+            elif human_scenario:
+                st.warning("AMBER FLAG · The numbers pass the basic mathematical checks, but this is your manually selected scenario, not a direction qualified by the analyst. Review the evidence and current price before deciding.")
+            elif plan.get("conflicts"):
+                st.warning("AMBER FLAG · Risk maths passes, but the analysis contains counterevidence. Read the conflicting factors before deciding.")
+            else:
+                st.success("No hard mathematical red flag detected under the current assumptions. This is not a prediction of success or a guarantee of execution.")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Stop distance", f"{stop_pips:.1f} pips" if geometry_ok else "Invalid")
+            c2.metric("Target distance", f"{target_pips:.1f} pips" if geometry_ok else "Invalid")
+            c3.metric("Calculated size", f"{lots:.2f} lots")
+            c4.metric("Estimated net R:R", f"1:{net_rr:.2f}")
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric("Risk budget", f"${risk_budget:.2f}")
+            c6.metric("Estimated loss at SL", f"${estimated_risk:.2f}")
+            c7.metric("Estimated gain at TP", f"${estimated_reward:.2f}")
+            c8.metric("Cost assumption", f"{friction_pips:.1f} pips")
+            st.caption(f"Pip value used: approximately ${pip_value:.2f}/pip/standard lot. Balance: ${balance_now:.2f}. Max risk setting: {min(float(risk_pct), 2.0):.2f}%. Estimated values exclude any costs not represented by the friction assumption and may differ from broker contract specifications.")
+
+            check_rows = [
+                {"Check": "Entry / SL / TP geometry", "Status": "PASS" if geometry_direction_ok else "RED FLAG", "Detail": "Stop and target are on the correct sides of entry." if geometry_direction_ok else "Selected direction requires a valid stop and target on opposite sides of entry."},
+                {"Check": "Maximum risk budget", "Status": "PASS" if risk_ok else "RED FLAG", "Detail": f"Estimated loss ${estimated_risk:.2f} against budget ${risk_budget:.2f}; size rounded down to 0.01 lots."},
+                {"Check": "Minimum net R:R", "Status": "PASS" if rr_ok else "RED FLAG", "Detail": f"Estimated net ratio 1:{net_rr:.2f}; required at least 1:2."},
+                {"Check": "Analyst alignment", "Status": "PASS" if not human_scenario else "AMBER", "Detail": "Matches the analyst's current direction." if not human_scenario else "Human-selected direction or analyst WAIT; this is not an analyst-qualified direction."},
+                {"Check": "Market / broker conditions", "Status": "UNVERIFIED", "Detail": "Spread, pip value, contract size, margin, event risk and future fills are not broker-verified."},
+            ]
+            st.dataframe(pd.DataFrame(check_rows), use_container_width=True, hide_index=True)
+            hard_pass = geometry_direction_ok and risk_ok and rr_ok and lots >= 0.01
+            if engine is None:
+                st.warning("Paper-trade recording is disabled until DATABASE_URL / persistent database storage is configured.")
+            elif not hard_pass:
+                st.warning("Paper approval is disabled while any hard mathematical check fails. You can edit the scenario and recalculate.")
+            else:
+                st.markdown("#### Your decision")
+                st.write("Review the chart, news, conflicting evidence and the assumptions above. The app is not choosing for you.")
+                approved = st.checkbox("I reviewed this scenario and approve recording it as a paper trade (no live order).", key=f"human_approve_{analysis_id}")
+                if st.button("Confirm & record paper trade", type="primary", use_container_width=True, disabled=not approved, key=f"record_exec_{analysis_id}"):
+                    try:
+                        db_execute("""
+                            INSERT INTO paper_trades(
+                                id,signal_id,symbol,direction,entry,stop,target,
+                                risk_usd,planned_net_rr,outcome,notes
+                            ) VALUES (
+                                :id,:signal,:symbol,:direction,:entry,:stop,:target,
+                                :risk,:rr,'OPEN',:notes
+                            )
+                        """, {
+                            "id": str(uuid.uuid4()),
+                            "signal": current.get("signal_id"),
+                            "symbol": symbol_now,
+                            "direction": direction,
+                            "entry": entry,
+                            "stop": stop,
+                            "target": target,
+                            "risk": estimated_risk,
+                            "rr": net_rr,
+                            "notes": f"Human-approved paper scenario. Analysis decision={plan.get('decision')}; human_scenario={human_scenario}; estimated stop={stop_pips:.2f} pips; target={target_pips:.2f} pips; size={lots:.2f} lots; costs={friction_pips:.2f} pips. No broker order sent.",
+                        })
+                        st.success("Paper trade recorded. No live order was sent.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not record paper trade ({type(exc).__name__}). Check database connectivity and logs.")
+        else:
+            st.info("Set or review the proposed direction and levels above, then select **Calculate risk & review flags**. The analyst's BUY/SELL/WAIT assessment never removes your ability to inspect a scenario.")
 
     st.markdown("---")
     st.markdown("### Recent saved execution candidates")
@@ -1454,7 +1568,7 @@ with tab_setups:
                 setups_df = pd.DataFrame(saved_setups)
                 setups_df["status"] = "Candidate — requires review"
                 st.dataframe(setups_df, use_container_width=True, hide_index=True)
-                st.caption("Saved candidates are historical analysis records, not open trades. Check freshness, market conditions and risk checks again before any paper approval.")
+                st.caption("Saved candidates are historical analysis records, not open trades. Re-analyse before making a decision; historical prices can be stale.")
             else:
                 st.info("No BUY/SELL candidates have been saved yet. Run an analysis; candidates are saved when database persistence is available.")
         except Exception as exc:
